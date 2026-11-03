@@ -1,0 +1,139 @@
+@import "tailwindcss";
+
+/*
+ * KPMPL Gate to Bill — v0.5 visual system.
+ * A printed ledger: warm paper, black ink, hairline rules, one signal colour.
+ * Fonts are bundled (latin woff2 only) so the single-file preview needs no network.
+ */
+@font-face { font-family: 'IBM Plex Sans'; font-style: normal; font-weight: 400; font-display: swap;
+  src: url('../node_modules/@fontsource/ibm-plex-sans/files/ibm-plex-sans-latin-400-normal.woff2') format('woff2'); }
+@font-face { font-family: 'IBM Plex Sans'; font-style: normal; font-weight: 500; font-display: swap;
+  src: url('../node_modules/@fontsource/ibm-plex-sans/files/ibm-plex-sans-latin-500-normal.woff2') format('woff2'); }
+@font-face { font-family: 'IBM Plex Sans'; font-style: normal; font-weight: 600; font-display: swap;
+  src: url('../node_modules/@fontsource/ibm-plex-sans/files/ibm-plex-sans-latin-600-normal.woff2') format('woff2'); }
+@font-face { font-family: 'IBM Plex Mono'; font-style: normal; font-weight: 400; font-display: swap;
+  src: url('../node_modules/@fontsource/ibm-plex-mono/files/ibm-plex-mono-latin-400-normal.woff2') format('woff2'); }
+@font-face { font-family: 'IBM Plex Mono'; font-style: normal; font-weight: 500; font-display: swap;
+  src: url('../node_modules/@fontsource/ibm-plex-mono/files/ibm-plex-mono-latin-500-normal.woff2') format('woff2'); }
+@font-face { font-family: 'IBM Plex Mono'; font-style: normal; font-weight: 600; font-display: swap;
+  src: url('../node_modules/@fontsource/ibm-plex-mono/files/ibm-plex-mono-latin-600-normal.woff2') format('woff2'); }
+
+@theme {
+  --font-sans: 'IBM Plex Sans', 'Noto Sans Devanagari', ui-sans-serif, "Segoe UI", Arial, sans-serif;
+  --font-mono: 'IBM Plex Mono', ui-monospace, Menlo, Consolas, monospace;
+
+  /* v0.7 enterprise palette: neutral slate surfaces, one deep industrial-blue brand. */
+  --color-brand-50: #eef3fb;
+  --color-brand-100: #d9e4f5;
+  --color-brand-600: #1f56b3;
+  --color-brand-700: #1a4791;
+  --color-brand-800: #153a75;
+  --color-brand-900: #0f2a55;
+  --color-surface: #ffffff;
+
+  /* Neutrals (names kept so every screen picks up the new palette) */
+  --color-paper: #f4f6f8;
+  --color-paper-deep: #e9edf2;
+  --color-ink: #111827;
+  --color-ink-soft: #374151;
+  --color-muted: #4b5563;
+  --color-faint: #6b7280;
+  --color-rule: #d5dbe3;
+  --color-field: #9aa4b2;
+
+  /* Work waiting on this person = brand blue */
+  --color-signal: #1f56b3;
+
+  /* Status tones — ONE mapping used everywhere (StatusChip, TruckCard accent):
+     done = green, waiting = amber, problem = red, action (needs you) = blue, neutral = grey */
+  --color-done: #15803d;
+  --color-done-bg: #ecfdf3;
+  --color-done-line: #a7e3bd;
+  --color-wait: #b45309;
+  --color-wait-bg: #fff7e6;
+  --color-wait-line: #f3cd85;
+  --color-problem: #b91c1c;
+  --color-problem-bg: #fef2f2;
+  --color-problem-line: #f5b5b5;
+  --color-action: #1f56b3;
+  --color-action-bg: #eef3fb;
+  --color-action-line: #b5c9ec;
+  --color-neutral: #4b5563;
+  --color-neutral-bg: #f3f4f6;
+  --color-neutral-line: #d5dbe3;
+
+  /* Old token names, re-pointed */
+  --color-canvas: #f4f6f8;
+  --color-label: #111827;
+  --color-line: #d5dbe3;
+  --color-line-soft: #d5dbe3;
+  --color-subtle: #e9edf2;
+  --color-accent-50: #eef3fb;
+  --color-accent-100: #d9e4f5;
+  --color-accent-600: #1f56b3;
+  --color-accent-700: #1a4791;
+  --color-ok-fg: #15803d;
+  --color-warn-fg: #b45309;
+  --color-bad-fg: #b91c1c;
+  --color-bad-bg: #fef2f2;
+}
+
+@layer base {
+  html { -webkit-text-size-adjust: 100%; background: var(--color-paper); }
+  body {
+    background: var(--color-paper);
+    color: var(--color-ink);
+    font-family: var(--font-sans);
+    font-size: 16px;
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+    font-feature-settings: "kern";
+  }
+  :focus-visible { outline: 3px solid var(--color-brand-600); outline-offset: 2px; }
+  input, select, textarea, button { font: inherit; }
+  h1, h2, h3 { font-weight: 600; }
+  ::placeholder { color: var(--color-faint); opacity: 1; }
+  .font-mono, code, kbd { font-variant-numeric: tabular-nums slashed-zero; font-feature-settings: "tnum"; }
+  ::selection { background: var(--color-brand-100); color: var(--color-ink); }
+}
+
+@layer components {
+  /* Section heading: the one small-caps device. */
+  .kicker { font-size: 14px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--color-muted); }
+
+  /* Ruled table: no box, ink rule under the header, hairlines between 40px rows. */
+  .tbl { width: 100%; border-collapse: collapse; font-size: 16px; background: var(--color-surface); }
+  .tbl th {
+    font-size: 13px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; color: var(--color-muted);
+    text-align: left; padding: 10px 16px 10px 12px; background: var(--color-paper-deep); border-bottom: 1px solid var(--color-rule); white-space: nowrap; vertical-align: bottom;
+  }
+  .tbl td { padding: 10px 16px 10px 12px; border-bottom: 1px solid var(--color-rule); vertical-align: middle; height: 48px; }
+  .tbl tr > :last-child { padding-right: 0; }
+  .tbl:not(.tbl-wrap) td { white-space: nowrap; }
+  .tbl:not(.tbl-wrap) td.wrap { white-space: normal; min-width: 120px; }
+  .tbl tbody tr:hover td { background: var(--color-brand-50); }
+  .tbl .num { text-align: right; white-space: nowrap; }
+  .tbl .nowrap { white-space: nowrap; }
+
+  /* First-column reference: ink, underline on hover. */
+  .lnk { color: var(--color-ink); font-weight: 500; text-decoration: none; text-underline-offset: 3px; text-decoration-thickness: 1px; }
+  .lnk:hover { text-decoration: underline; }
+
+  /* Inline text action ("Open →", "Record tare"). */
+  .act { color: var(--color-ink); font-weight: 500; text-decoration: underline; text-decoration-color: var(--color-field);
+    text-underline-offset: 3px; text-decoration-thickness: 1px; white-space: nowrap; }
+  .act:hover { text-decoration-color: var(--color-ink); }
+
+  /* Definition list rows: label 160px, value, hairline between. */
+  .deflist { border-top: 1px solid var(--color-rule); }
+  .deflist > div { display: grid; grid-template-columns: 128px minmax(0, 1fr); gap: 16px; padding: 9px 0; border-bottom: 1px solid var(--color-rule); }
+  @media (min-width: 640px) { .deflist > div { grid-template-columns: 160px minmax(0, 1fr); } }
+}
+
+.tabular { font-variant-numeric: tabular-nums; }
+
+/* Number-plate style for vehicle numbers (Indian HSRP look, neutral). */
+.plate { display: inline-flex; align-items: center; gap: 6px; border: 2px solid #111827; border-radius: 6px; background: #fff;
+  padding: 2px 10px 2px 0; font-family: var(--font-mono); font-weight: 600; letter-spacing: 0.06em; color: #111827; white-space: nowrap; line-height: 1.3; }
+.plate::before { content: 'IND'; align-self: stretch; display: flex; align-items: center; background: var(--color-brand-700); color: #fff;
+  font-family: var(--font-sans); font-size: 9px; font-weight: 600; letter-spacing: 0.04em; padding: 0 4px; border-radius: 3px 0 0 3px; }

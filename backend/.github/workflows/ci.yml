@@ -1,0 +1,67 @@
+name: phase-3-security-ci
+
+on:
+  push:
+    branches: [ integration/phase-3-security ]
+  pull_request:
+
+jobs:
+  lint-and-typecheck:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.15.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24.19.0
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter api typecheck
+      - run: pnpm --filter api lint
+      - run: pnpm --filter api test -- --run
+
+  docker-compose-e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: kpmpl
+          POSTGRES_PASSWORD: change-me
+          POSTGRES_DB: kpmpl
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U kpmpl -d kpmpl"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 15
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: --health-cmd "redis-cli ping" --health-interval 5s --health-timeout 3s --health-retries 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.15.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24.19.0
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: docker compose up -d --wait
+      - run: pnpm --filter api migrate:deploy
+      - run: pnpm --filter api seed
+      - run: pnpm --filter api test -- security
+        env:
+          DATABASE_URL: postgresql://kpmpl:change-me@localhost:5432/kpmpl?schema=public
+          REDIS_URL: redis://localhost:6379
+          WEB_ORIGIN: http://localhost:5173,http://localhost:8080
+      - run: docker compose down
+        if: always()

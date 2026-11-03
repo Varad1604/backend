@@ -1,0 +1,10 @@
+services:
+  minio:
+    image: pgsty/minio:latest
+  api:
+    environment:
+      WEB_ORIGIN: https://8080-agq2bfuugqe3svej7xf4q3bhna.instabox.tech,http://localhost:8080
+  web-prod:
+    build:
+      args:
+        VITE_APP_MODE: demo

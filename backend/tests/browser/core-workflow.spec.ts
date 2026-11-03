@@ -1,0 +1,95 @@
+import { test, expect, type Page } from '@playwright/test';
+import { readFileSync } from 'node:fs';
+const accounts = JSON.parse(readFileSync('.demo-credentials.json', 'utf8')) as { employeeCode: string; password: string }[];
+async function signIn(page: Page, code: string) {
+  const account = accounts.find(item => item.employeeCode === code)!;
+  await page.goto('/');
+  await page.getByLabel('Employee code').fill(account.employeeCode);
+  await page.getByLabel('Password', { exact: true }).fill(account.password);
+  await page.getByRole('button', { name: 'Sign in', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Sign out', exact: true })).toBeVisible();
+}
+async function arrival(page: Page, reference: string) {
+  await page.getByText('New arrival', { exact: true }).click();
+  await expect(page.locator('.new-arrival input:visible')).toHaveCount(3);
+  await page.getByLabel('Gate Entry no.', { exact: true }).fill(reference);
+  await page.getByLabel('Truck no.', { exact: true }).fill('DEMO-MH-0001');
+  await page.getByLabel('Gross weight', { exact: true }).fill('15000.125');
+}
+test('three-input arrival, one-note QC and protected one-click departure persist correctly', async ({ page, browser }) => {
+  const errors: string[] = [];
+  page.on('pageerror', error => errors.push(error.message));
+  const gateRef = `DEMO-QUICK-${Date.now()}`;
+  await signIn(page, 'DEMO-GATE'); await arrival(page, gateRef);
+  await page.getByRole('button', { name: 'Save arrival', exact: true }).click();
+  await expect(page.getByRole('heading', { name: 'DEMO-MH-0001', exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Truck has left', exact: true })).toBeDisabled();
+  await page.getByLabel('Tare weight', { exact: true }).fill('5500.025');
+  await page.getByRole('button', { name: 'Save tare', exact: true }).click();
+  await expect(page.getByText('9500.100 kg', { exact: true })).toBeVisible();
+  await expect(page.getByText('At the mill', { exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Truck has left', exact: true })).toBeDisabled();
+  await expect(page.getByRole('button', { name: 'Save QC note', exact: true })).toHaveCount(0);
+  const qcContext = await browser.newContext();
+  try {
+    const qc = await qcContext.newPage(); qc.on('pageerror', error => errors.push(error.message));
+    await signIn(qc, 'DEMO-QC');
+    await qc.getByLabel('Search Gate Entry reference, vehicle, supplier or material').fill(gateRef);
+    await qc.getByRole('button', { name: 'Search', exact: true }).click();
+    await qc.getByRole('button', { name: `Open ${gateRef}`, exact: true }).click();
+    await expect(qc.locator('textarea:visible')).toHaveCount(1);
+    await qc.getByLabel('QC note', { exact: true }).fill('DEMO inspection recorded');
+    await qc.getByText('Save observations only', { exact: true }).click();
+    await qc.getByRole('button', { name: 'Save QC note', exact: true }).click();
+    await page.getByRole('button', { name: 'Refresh records', exact: true }).click();
+    await expect(page.getByRole('button', { name: 'Truck has left', exact: true })).toBeDisabled();
+    await qc.getByRole('button', { name: 'Demo hold', exact: true }).click();
+    await expect(qc.getByRole('alert')).toContainText('Enter a short reason for Hold');
+    await qc.getByLabel('QC note', { exact: true }).fill('DEMO hold pending check');
+    await qc.getByRole('button', { name: 'Demo hold', exact: true }).click();
+    await expect(qc.getByText('QC: Hold', { exact: true })).toBeVisible();
+    await page.getByRole('button', { name: 'Refresh records', exact: true }).click();
+    await expect(page.getByText('QC: Hold', { exact: true })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Truck has left', exact: true })).toBeDisabled();
+    await qc.getByRole('button', { name: 'Demo clear', exact: true }).click();
+    await expect(qc.getByText('QC: Cleared', { exact: true })).toBeVisible();
+    await qc.getByText('History', { exact: true }).click();
+    await expect(qc.getByText('DEMO inspection recorded', { exact: true })).toBeVisible();
+    await qc.getByRole('button', { name: 'Sign out', exact: true }).click();
+  } finally { await qcContext.close(); }
+  await page.getByRole('button', { name: 'Refresh records', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Truck has left', exact: true })).toBeEnabled();
+  await page.getByRole('button', { name: 'Truck has left', exact: true }).click();
+  await expect(page.getByText('Departure recorded.', { exact: true })).toBeVisible();
+  await expect(page.getByText('GRN: Reference not added', { exact: true })).toBeVisible();
+  await page.getByText('More actions', { exact: true }).click();
+  await page.getByRole('button', { name: 'Add GRN reference', exact: true }).click();
+  await page.getByLabel('GRN no.', { exact: true }).fill('0009-DEMO-GRN/HO');
+  await page.getByRole('button', { name: 'Verified in DataMan — save', exact: true }).click();
+  await expect(page.getByText('GRN: Reference added', { exact: true })).toBeVisible();
+  await page.reload();
+  await page.getByLabel('Search Gate Entry reference, vehicle, supplier or material').fill(gateRef);
+  await page.getByRole('button', { name: 'Search', exact: true }).click();
+  await page.getByRole('button', { name: `Open ${gateRef}`, exact: true }).click();
+  await expect(page.getByText('9500.100 kg', { exact: true })).toBeVisible();
+  await expect(page.getByText('Departure recorded.', { exact: true })).toBeVisible();
+  await page.screenshot({ path: 'test-results/core-workflow-desktop.png', fullPage: true });
+  await page.setViewportSize({ width: 375, height: 812 });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  await page.screenshot({ path: 'test-results/core-workflow-mobile.png', fullPage: true });
+  await page.getByRole('button', { name: 'Sign out', exact: true }).click();
+  expect(errors).toEqual([]);
+});
+test('optional arrival details remain available and are saved without adding required inputs', async ({ page }) => {
+  await signIn(page, 'DEMO-GATE'); await arrival(page, `DEMO-DETAILS-${Date.now()}`);
+  await page.getByText('More details (optional)', { exact: true }).click();
+  await page.getByLabel('Supplier', { exact: true }).fill('DEMO-Optional Supplier');
+  await page.getByLabel('Material', { exact: true }).fill('DEMO-Optional Material');
+  await page.getByLabel('PO reference', { exact: true }).fill('0007-DEMO-PO');
+  await page.getByRole('button', { name: 'Save arrival', exact: true }).click();
+  await page.locator('.visit-summary > details > summary').click();
+  await expect(page.getByText('DEMO-Optional Supplier', { exact: true })).toBeVisible();
+  await expect(page.getByText('DEMO-Optional Material', { exact: true })).toBeVisible();
+  await expect(page.getByText('0007-DEMO-PO', { exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Sign out', exact: true }).click();
+});

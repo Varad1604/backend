@@ -1,0 +1,45 @@
+{
+  "name": "kpmpl-platform",
+  "private": true,
+  "version": "0.1.0",
+  "description": "KPMPL Integrated Gate-to-Bill Workflow Management System - monorepo (PRAVAHAx, contract PSE-KPM-M1M2-R5). Governed by KPMPL_Master_Build_Prompt_v1.0.md.",
+  "packageManager": "pnpm@10.15.0",
+  "engines": {
+    "node": ">=24.0.0"
+  },
+  "scripts": {
+    "build": "turbo run build",
+    "typecheck": "turbo run typecheck",
+    "lint": "eslint .",
+    "test": "turbo run test",
+    "dev": "turbo run dev",
+    "generate:contracts": "pnpm --filter @kpmpl/contracts generate",
+    "migrate": "pnpm --filter @kpmpl/api migrate",
+    "migrate:deploy": "pnpm --filter @kpmpl/api migrate:deploy",
+    "smoke:stack": "node scripts/smoke-stack.mjs",
+    "bootstrap:demo": "node --env-file=.env apps/api/dist/bootstrap.js",
+    "test:browser": "playwright test"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.22.0",
+    "@playwright/test": "1.64.1",
+    "eslint": "^9.22.0",
+    "turbo": "^2.5.0",
+    "typescript": "^5.7.3",
+    "typescript-eslint": "^8.26.0"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "@prisma/client",
+      "@prisma/engines",
+      "@swc/core",
+      "esbuild",
+      "prisma",
+      "argon2"
+    ],
+    "overrides": {
+      "fastify": "5.12.5",
+      "deepmerge-ts": "8.0.2"
+    }
+  }
+}

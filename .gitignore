@@ -1,0 +1,13 @@
+# KPMPL local workspace - local checkpoint repository (no remote)
+node_modules/
+dist/
+.turbo/
+playwright-report/
+test-results/
+*.log
+.env
+.env.local
+.env.production.local
+.env.development.local
+__pycache__/
+.DS_Store

@@ -1,0 +1,13 @@
+# Build context for apps/api/Dockerfile (used by the api/migrate compose services).
+# The Dockerfile copies packages/contracts and apps/api wholesale; without this file
+# the host's node_modules would be COPY'd over the image's fresh pnpm install, and
+# Windows junction symlinks would dangle inside the Linux image (MODULE_NOT_FOUND in
+# the contracts build). Secrets and local state never belong in the image either.
+**/node_modules
+**/dist
+**/.turbo
+.git
+.env
+.env.*
+*.log
+coverage

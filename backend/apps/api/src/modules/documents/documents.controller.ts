@@ -1,0 +1,31 @@
+import { Body, Controller, Delete, Get, Headers, Param, Patch, Post, Put, Query, Req, Res } from '@nestjs/common';
+import type { FastifyReply, FastifyRequest } from 'fastify';
+import { z } from 'zod';
+import { Requires, RequiresAny } from '../identity-access/access.decorators';
+import type { AuthRequest } from '../identity-access/identity.types';
+import { idempotencyKeySchema } from '../receiving/receiving.schemas';
+import type { WriteResult } from '../platform/idempotent-write.service';
+import { actionSchema, applicabilitySchema, categories, createPackageSchema, erpSchema, ifMatchSchema, packageIdSchema, reminderSchema, reviewSchema, updatePackageSchema } from './document.schemas';
+import { DocumentsService } from './documents.service';
+
+function version(value: string | undefined) { return ifMatchSchema.parse(value); }
+function key(request: FastifyRequest) { return idempotencyKeySchema.parse(request.headers['idempotency-key']); }
+function response(reply: FastifyReply, result: WriteResult) { reply.status(result.status); if (result.replayed) reply.header('Idempotent-Replay', 'true'); return result.body; }
+
+@Controller()
+export class DocumentsController {
+  constructor(private readonly documents: DocumentsService) {}
+  @Get('document-packages') @Requires('docs.prepare') list(@Req() req: AuthRequest) { return this.documents.list(req.actor); }
+  @Get('document-packages/:id') @RequiresAny('docs.prepare', 'ho.inbox') get(@Param('id') id: string, @Req() req: AuthRequest) { return this.documents.get(req.actor, packageIdSchema.parse(id)); }
+  @Post('document-packages') @Requires('docs.prepare') async create(@Body() body: unknown, @Req() req: AuthRequest & FastifyRequest, @Res({ passthrough: true }) reply: FastifyReply) { return response(reply, await this.documents.create(req.actor, key(req), createPackageSchema.parse(body))); }
+  @Patch('document-packages/:id') @Requires('docs.prepare') async update(@Param('id') id: string, @Body() body: unknown, @Headers('if-match') match: string | undefined, @Req() req: AuthRequest & FastifyRequest, @Res({ passthrough: true }) reply: FastifyReply) { return response(reply, await this.documents.update(req.actor, packageIdSchema.parse(id), key(req), version(match), updatePackageSchema.parse(body))); }
+  @Put('document-packages/:id/items/:category/applicability') @Requires('docs.prepare') async applicability(@Param('id') id: string, @Param('category') category: string, @Body() body: unknown, @Headers('if-match') match: string | undefined, @Req() req: AuthRequest & FastifyRequest, @Res({ passthrough: true }) reply: FastifyReply) { const input = applicabilitySchema.parse(body); return response(reply, await this.documents.applicability(req.actor, packageIdSchema.parse(id), z.enum(categories).parse(category), key(req), version(match), input.notApplicableReason)); }
+  @Post('document-packages/:id/actions') @RequiresAny('docs.prepare', 'docs.submit', 'ho.review') async action(@Param('id') id: string, @Body() body: unknown, @Headers('if-match') match: string | undefined, @Req() req: AuthRequest & FastifyRequest, @Res({ passthrough: true }) reply: FastifyReply) { return response(reply, await this.documents.action(req.actor, packageIdSchema.parse(id), key(req), version(match), actionSchema.parse(body))); }
+  @Post('document-packages/:id/files') @Requires('docs.prepare') async upload(@Param('id') id: string, @Headers('if-match') match: string | undefined, @Req() req: AuthRequest & FastifyRequest, @Res({ passthrough: true }) reply: FastifyReply) { const part = await req.file(); if (!part) throw new Error('Multipart file is required.'); const category = z.enum(categories).parse((part.fields.category as { value?: unknown } | undefined)?.value); const buffer = await part.toBuffer(); return response(reply, await this.documents.upload(req.actor, packageIdSchema.parse(id), key(req), version(match), category, { filename: part.filename, mimetype: part.mimetype, buffer })); }
+  @Delete('document-packages/:id/files/:fileId') @Requires('docs.prepare') async remove(@Param('id') id: string, @Param('fileId') fileId: string, @Query('category') category: string, @Headers('if-match') match: string | undefined, @Req() req: AuthRequest & FastifyRequest, @Res({ passthrough: true }) reply: FastifyReply) { return response(reply, await this.documents.removeFile(req.actor, packageIdSchema.parse(id), z.uuid().parse(fileId), z.enum(categories).parse(category), key(req), version(match))); }
+  @Get('document-files/:fileId/content') @RequiresAny('docs.prepare', 'ho.inbox') async content(@Param('fileId') fileId: string, @Req() req: AuthRequest, @Res() reply: FastifyReply) { const file = await this.documents.content(req.actor, z.uuid().parse(fileId)); return reply.headers({ 'Content-Type': 'application/pdf', 'Content-Disposition': `inline; filename="${file.filename.replace(/["\\]/g, '_')}"`, 'X-Content-Type-Options': 'nosniff', 'Cache-Control': 'private, no-store' }).send(file.body); }
+  @Get('head-office/cases') @Requires('ho.inbox') ho(@Req() req: AuthRequest) { return this.documents.list(req.actor, true); }
+  @Post('head-office/reviews') @Requires('ho.review') async review(@Body() body: unknown, @Headers('if-match') match: string | undefined, @Req() req: AuthRequest & FastifyRequest, @Res({ passthrough: true }) reply: FastifyReply) { return response(reply, await this.documents.review(req.actor, key(req), version(match), reviewSchema.parse(body))); }
+  @Post('head-office/cases/:id/erp-milestones') @Requires('erp.confirm') async erp(@Param('id') id: string, @Body() body: unknown, @Headers('if-match') match: string | undefined, @Req() req: AuthRequest & FastifyRequest, @Res({ passthrough: true }) reply: FastifyReply) { return response(reply, await this.documents.erp(req.actor, packageIdSchema.parse(id), key(req), version(match), erpSchema.parse(body))); }
+  @Post('head-office/cases/:id/reminders') @Requires('erp.confirm') async reminder(@Param('id') id: string, @Body() body: unknown, @Headers('if-match') match: string | undefined, @Req() req: AuthRequest & FastifyRequest, @Res({ passthrough: true }) reply: FastifyReply) { const input = reminderSchema.parse(body); return response(reply, await this.documents.reminder(req.actor, packageIdSchema.parse(id), key(req), version(match), input.note)); }
+}

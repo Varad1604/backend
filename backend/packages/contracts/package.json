@@ -1,0 +1,32 @@
+{
+  "name": "@kpmpl/contracts",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Frozen API contract: OpenAPI 3.1 source of truth (openapi/openapi.yaml) + generated typed client. Web and future Android/iOS clients consume this package and nothing else (build prompt sections 4.4, 8).",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "generate": "openapi-typescript ./openapi/openapi.yaml -o ./src/generated/schema.ts",
+    "prebuild": "pnpm run generate",
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "pnpm run build && tsc -p tsconfig.json --noEmit",
+    "clean": "rm -rf dist src/generated"
+  },
+  "dependencies": {
+    "openapi-fetch": "^0.13.4"
+  },
+  "devDependencies": {
+    "openapi-typescript": "^7.6.1",
+    "typescript": "^5.7.3"
+  }
+}

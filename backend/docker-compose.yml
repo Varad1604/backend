@@ -1,0 +1,124 @@
+﻿# KPMPL platform - full local stack (build prompt section 11).
+# Usage:
+#   cp .env.example .env      (first time)
+#   docker compose up --build            # postgres+redis+minio+clamav+api (+migrate)
+#   docker compose exec api node dist/seed.js   # load the demo seed (brief Â§9)
+#
+# Exposed for local development: postgres 55432 (host), redis 6379, minio 9000/9001, clamav 3310, api 3000.
+# The web UI runs from the frontend repo (Vite dev on 5173 or the prod-like nginx image);
+# the earlier `web` service pointed at apps/web/Dockerfile, which does not exist (CONTRACT_DIFF #162).
+name: kpmpl
+
+services:
+  postgres:
+    # Brief Â§2 pins PostgreSQL 16.
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-kpmpl}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change-me}
+      POSTGRES_DB: ${POSTGRES_DB:-kpmpl}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    ports:
+      # Host 55432, not 5432: many dev machines already run a local Postgres on 5432
+      # (e.g. inside WSL, whose relay shadows low ports on 127.0.0.1). The container's
+      # internal port stays 5432. Connect from the host via 127.0.0.2:55432.
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redisdata:/data
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+
+  minio:
+    image: pgsty/minio:RELEASE.2026-08-04T00-00-00Z
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-kpmpl-minio}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-change-me-too}
+    volumes:
+      - miniodata:/data
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  clamav:
+    image: clamav/clamav:stable
+    volumes:
+      - clamdata:/var/lib/clamav
+    ports:
+      - "127.0.0.1:3310:3310"
+    healthcheck:
+      test: ["CMD-SHELL", "clamdcheck.sh"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+
+  # One-shot migrations before the api starts (brief Â§9: migrations run as a separate step).
+  migrate:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    env_file:
+      - .env
+    environment:
+      NODE_ENV: development
+      DATABASE_URL: postgresql://${POSTGRES_USER:-kpmpl}:${POSTGRES_PASSWORD:-change-me}@postgres:5432/${POSTGRES_DB:-kpmpl}?schema=public
+    command: ["sh", "-c", "npx prisma migrate deploy && node dist/seed.js"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  api:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    env_file:
+      - .env
+    environment:
+      # The API runs in development mode with demo data locally; APP_MODE=demo would be
+      # rejected by the config schema under NODE_ENV=production (CONTRACT_DIFF #162).
+      NODE_ENV: development
+      DEMO_MODE: "true"
+      DATABASE_URL: postgresql://${POSTGRES_USER:-kpmpl}:${POSTGRES_PASSWORD:-change-me}@postgres:5432/${POSTGRES_DB:-kpmpl}?schema=public
+      REDIS_URL: redis://redis:6379
+      S3_ENDPOINT: http://minio:9000
+      CLAMAV_HOST: clamav
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+      clamav:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    ports:
+      - "3000:3000"
+
+volumes:
+  pgdata:
+  redisdata:
+  miniodata:
+  clamdata:
+

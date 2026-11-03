@@ -1,0 +1,13 @@
+# Isolated host ports preserve existing development servers.
+# docker compose -f docker-compose.yml -f infra/compose.smoke.yaml up -d
+services:
+  api:
+    environment:
+      APP_MODE: staging
+      WEB_ORIGIN: http://localhost:18080
+      COOKIE_SECURE: "false"
+    ports: !override ["127.0.0.1:13000:3000"]
+  web:
+    ports: !override ["127.0.0.1:18081:8080"]
+  caddy:
+    ports: !override ["127.0.0.1:18080:80"]

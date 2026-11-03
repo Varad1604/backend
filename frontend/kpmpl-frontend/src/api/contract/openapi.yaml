@@ -1,0 +1,772 @@
+# Generated copy of the backend OpenAPI contract (backend/packages/contracts/openapi/openapi.yaml,
+# backend branch integration/phase-1-backend-contract, regenerated for Phase 1 alignment).
+# Update it only by re-copying from the backend repo so both sides stay identical.
+openapi: 3.1.0
+info:
+  title: KPMPL Gate-to-Bill API
+  version: 1.1.0
+  summary: Shared API for the KPMPL web application and future Android/iOS clients.
+  description: |
+    Contract snapshot v1.1.0 — Phase 1 frontend<->backend alignment
+    (backend/docs/integration/CONTRACT_DIFF.md; normative: KPMPL_Backend_Build_Brief.md sections 3-7).
+
+    Conventions (brief section 3):
+    - All success bodies wrap the payload in `data`; paged payloads are
+      `{data: {data: [...], page, pageSize, total}}`. 204 (logout) has no body.
+    - All error bodies use the `Error` envelope; the envelope appears on EVERY
+      non-2xx, including framework-level 400/413/415.
+    - `Idempotency-Key` (UUID) is required on every write except login/logout;
+      replays return the stored response (`Idempotent-Replay: true`), key reuse
+      with a different body returns 422.
+    - `If-Match: <integer version>` on every write to an existing visit or package.
+      QC writes send the VISIT version; package/HO writes the package version.
+    - `X-Requested-With: kpmpl-web` on browser writes; the Origin must be on the
+      exact allowlist (`WEB_ORIGIN`, comma-separated).
+    - Decimals are fixed-scale strings ("15000.000" kg, "12.50" percent); ERP refs
+      are opaque strings; times are ISO-8601 UTC.
+    - Demo users (APP_MODE=demo): demo-gate, demo-qc, demo-docs, demo-ho,
+      demo-admin - password from the server's DEMO_PASSWORD.
+    - QC decisions (D-03, decided 2026-11-03): the QC operator (role qc) records
+      the readings and makes the final decision (one role, one screen).
+security:
+  - cookieAuth: []
+  - bearerAuth: []
+tags:
+  - name: platform
+  - name: auth
+  - name: receiving
+  - name: qc
+  - name: reports
+  - name: admin
+  - name: documents
+  - name: head-office
+paths:
+  /healthz:
+    get:
+      tags: [platform]
+      summary: Liveness probe
+      security: []
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { type: object, required: [status], properties: { status: { const: ok } } } } } }
+  /readyz:
+    get:
+      tags: [platform]
+      summary: Readiness (database, redis, storage)
+      security: []
+      responses:
+        '200': { $ref: '#/components/responses/Ready' }
+        '503': { $ref: '#/components/responses/Ready' }
+  /config/policies:
+    get:
+      tags: [platform]
+      summary: Named, configurable policies with their KPMPL decision refs
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { type: object, required: [data], properties: { data: { type: object } } } } } }
+  /auth/login:
+    post:
+      tags: [auth]
+      summary: Sign in; sets the __Host-kpmpl_sid session cookie
+      security: []
+      requestBody:
+        required: true
+        content: { application/json: { schema: { type: object, required: [username, password], properties: { username: { type: string }, password: { type: string }, clientType: { type: string, enum: [web, mobile], default: web } }, additionalProperties: false } } }
+      responses:
+        '200':
+          description: The User (web) or the full token payload (mobile)
+          content: { application/json: { schema: { type: object, required: [data], properties: { data: { oneOf: [{ $ref: '#/components/schemas/User' }, { type: object }] } } } } }
+        '401': { $ref: '#/components/responses/Error' }
+        '403': { $ref: '#/components/responses/Error' }
+        '429': { $ref: '#/components/responses/Error' }
+  /auth/me:
+    get:
+      tags: [auth]
+      summary: Current user
+      responses:
+        '200': { $ref: '#/components/responses/User' }
+        '401': { $ref: '#/components/responses/Error' }
+  /auth/logout:
+    post:
+      tags: [auth]
+      summary: Revoke the session; clears the cookie
+      responses:
+        '204': { description: No content }
+  /auth/refresh:
+    post:
+      tags: [auth]
+      summary: Transitional non-browser token refresh
+      security: []
+      requestBody:
+        content: { application/json: { schema: { type: object, properties: { refreshToken: { type: string } }, additionalProperties: false } } }
+      responses:
+        '200': { description: Rotated token payload, content: { application/json: { schema: { type: object } } } }
+        '401': { $ref: '#/components/responses/Error' }
+        '403': { $ref: '#/components/responses/Error' }
+  /auth/change-password:
+    post:
+      tags: [auth]
+      summary: Change the caller's password (Idempotency-Key required)
+      requestBody:
+        required: true
+        content: { application/json: { schema: { type: object, required: [currentPassword, newPassword], properties: { currentPassword: { type: string }, newPassword: { type: string, minLength: 10, maxLength: 128 } }, additionalProperties: false } } }
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { type: object, required: [data], properties: { data: { type: object, required: [changed], properties: { changed: { const: true } } } } } } } }
+        '401': { $ref: '#/components/responses/Error' }
+        '422': { $ref: '#/components/responses/Error' }
+  /receiving-visits:
+    get:
+      tags: [receiving]
+      summary: Register page (any of receiving.view / docs.prepare)
+      parameters:
+        - { name: search, in: query, schema: { type: string, maxLength: 100 }, description: Case-insensitive over gate entry ref, vehicle, supplier, GRN ref }
+        - { name: qcStatus, in: query, schema: { $ref: '#/components/schemas/QcStatus' }, style: form, explode: true }
+        - { name: exitStatus, in: query, schema: { $ref: '#/components/schemas/ExitStatus' } }
+        - { name: grnStatus, in: query, schema: { $ref: '#/components/schemas/GrnStatus' } }
+        - { name: page, in: query, schema: { type: integer, minimum: 1, default: 1 } }
+        - { name: pageSize, in: query, schema: { type: integer, minimum: 1, maximum: 500, default: 50 } }
+      responses:
+        '200': { $ref: '#/components/responses/VisitPage' }
+        '401': { $ref: '#/components/responses/Error' }
+        '403': { $ref: '#/components/responses/Error' }
+        '422': { $ref: '#/components/responses/Error' }
+    post:
+      tags: [receiving]
+      summary: Create a visit (receiving.create, Idempotency-Key required)
+      parameters: [{ $ref: '#/components/parameters/IdempotencyKey' }]
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/CreateReceivingVisitInput' } } }
+      responses:
+        '201': { $ref: '#/components/responses/Visit' }
+        '401': { $ref: '#/components/responses/Error' }
+        '403': { $ref: '#/components/responses/Error' }
+        '409': { $ref: '#/components/responses/Error', description: DUPLICATE_CANDIDATE with meta.existingId }
+        '422': { $ref: '#/components/responses/Error' }
+  /receiving-visits/{id}:
+    parameters: [{ $ref: '#/components/parameters/VisitId' }]
+    get:
+      tags: [receiving]
+      summary: Visit snapshot
+      responses:
+        '200': { $ref: '#/components/responses/Visit' }
+        '404': { $ref: '#/components/responses/Error' }
+    patch:
+      tags: [receiving]
+      summary: Correct gate details (receiving.edit, Idempotency-Key and If-Match required)
+      parameters:
+        - { $ref: '#/components/parameters/IdempotencyKey' }
+        - { $ref: '#/components/parameters/IfMatch' }
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/CorrectVisitInput' } } }
+      responses:
+        '200': { $ref: '#/components/responses/Visit' }
+        '409': { $ref: '#/components/responses/Error' }
+        '422': { $ref: '#/components/responses/Error' }
+  /receiving-visits/{id}/timeline:
+    parameters: [{ $ref: '#/components/parameters/VisitId' }]
+    get:
+      tags: [receiving]
+      summary: Timeline events, newest first
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { type: object, required: [data], properties: { data: { type: array, items: { $ref: '#/components/schemas/TimelineEvent' } } } } } } }
+  /receiving-visits/{id}/weighments:
+    parameters: [{ $ref: '#/components/parameters/VisitId' }]
+    get:
+      tags: [receiving]
+      summary: Weighment history
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { type: object, required: [data], properties: { data: { type: array, items: { type: object } } } } } } }
+    post:
+      tags: [receiving]
+      summary: Record tare (gate.followup, Idempotency-Key and If-Match required)
+      parameters:
+        - { $ref: '#/components/parameters/IdempotencyKey' }
+        - { $ref: '#/components/parameters/IfMatch' }
+      requestBody:
+        required: true
+        content: { application/json: { schema: { type: object, required: [kind, value, unit], properties: { kind: { const: tare }, value: { type: string, pattern: '^(?!0+(?:[.]0{1,3})?$)[0-9]{1,9}([.][0-9]{1,3})?$' }, unit: { const: kg }, correctionReason: { type: string, maxLength: 2000 }, correctsId: { type: string, format: uuid }, reason: { type: string } }, additionalProperties: false } } }
+      responses:
+        '201': { $ref: '#/components/responses/Visit' }
+        '409': { $ref: '#/components/responses/Error' }
+        '422': { $ref: '#/components/responses/Error' }
+  /receiving-visits/{id}/exit:
+    parameters: [{ $ref: '#/components/parameters/VisitId' }]
+    post:
+      tags: [receiving]
+      summary: Record physical exit (gate.followup, Idempotency-Key and If-Match required)
+      parameters:
+        - { $ref: '#/components/parameters/IdempotencyKey' }
+        - { $ref: '#/components/parameters/IfMatch' }
+      requestBody:
+        required: true
+        content: { application/json: { schema: { type: object, required: [millChecksConfirmed], properties: { physicalExitAt: { type: string, format: date-time }, remarks: { type: string, maxLength: 500 }, millChecksConfirmed: { const: true } }, additionalProperties: false } } }
+      responses:
+        '201': { $ref: '#/components/responses/Visit' }
+        '422': { $ref: '#/components/responses/Error', description: DOMAIN_RULE (R-05 prerequisites) }
+  /receiving-visits/{id}/grn-links:
+    parameters: [{ $ref: '#/components/parameters/VisitId' }]
+    get:
+      tags: [receiving]
+      summary: GRN references linked to the visit
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { type: object, required: [data], properties: { data: { type: array, items: { type: object } } } } } } }
+    post:
+      tags: [receiving]
+      summary: Record the official GRN reference (gate.followup, Idempotency-Key and If-Match required)
+      parameters:
+        - { $ref: '#/components/parameters/IdempotencyKey' }
+        - { $ref: '#/components/parameters/IfMatch' }
+      requestBody:
+        required: true
+        content: { application/json: { schema: { type: object, required: [officialGrnRef, verifiedInDataManByStaff], properties: { officialGrnRef: { type: string, minLength: 1, maxLength: 40 }, verifiedInDataManByStaff: { const: true }, correctionReason: { type: string, maxLength: 500 } }, additionalProperties: false } } }
+      responses:
+        '201': { $ref: '#/components/responses/Visit' }
+        '422': { $ref: '#/components/responses/Error' }
+  /reference-data/receiving:
+    get:
+      tags: [receiving]
+      summary: Supplier/material suggestions (distinct-in-use union seeded list)
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { type: object, required: [data], properties: { data: { $ref: '#/components/schemas/ReferenceData' } } } } } }
+  /qc/queue:
+    get:
+      tags: [qc]
+      summary: QC work queue (pending/in_progress/returned/submitted, oldest first; submitted = awaiting the QC operator's decision)
+      responses:
+        '200': { $ref: '#/components/responses/QcQueue' }
+  /receiving-visits/{id}/qc-inspections:
+    parameters: [{ $ref: '#/components/parameters/VisitId' }]
+    get:
+      tags: [qc]
+      summary: Array with 0 or 1 QcInspection (the frontend reads [0])
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { type: object, required: [data], properties: { data: { type: array, items: { $ref: '#/components/schemas/QcInspection' } } } } } } }
+    post:
+      tags: [qc]
+      summary: Save a draft or submit readings (qc.measure, Idempotency-Key and visit If-Match required)
+      parameters:
+        - { $ref: '#/components/parameters/IdempotencyKey' }
+        - { $ref: '#/components/parameters/IfMatch' }
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/QcSubmitInput' } } }
+      responses:
+        '201': { description: Updated QcInspection, content: { application/json: { schema: { type: object, required: [data], properties: { data: { $ref: '#/components/schemas/QcInspection' } } } } } }
+        '422': { $ref: '#/components/responses/Error' }
+  /qc-inspections/{inspectionId}/decisions:
+    parameters: [{ name: inspectionId, in: path, required: true, schema: { type: string, format: uuid } }]
+    post:
+      tags: [qc]
+      summary: Final QC decision by the QC operator (qc.decide, Idempotency-Key and visit If-Match; D-03). Allowed only while qcStatus is submitted; returned reopens the readings for a new revision.
+      parameters:
+        - { $ref: '#/components/parameters/IdempotencyKey' }
+        - { $ref: '#/components/parameters/IfMatch' }
+      requestBody:
+        required: true
+        content: { application/json: { schema: { type: object, required: [outcome], properties: { outcome: { type: string, enum: [returned, accepted, accepted_with_deduction, rejected] }, reason: { type: string, maxLength: 1000 } }, additionalProperties: false } } }
+      responses:
+        '200': { description: Updated QcInspection, content: { application/json: { schema: { type: object, required: [data], properties: { data: { $ref: '#/components/schemas/QcInspection' } } } } } }
+        '422': { $ref: '#/components/responses/Error' }
+  /reports/overview:
+    get:
+      tags: [reports]
+      summary: Dashboard counters and lists (overview.view; "today" = Asia/Kolkata)
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { type: object, required: [data], properties: { data: { $ref: '#/components/schemas/OverviewData' } } } } } }
+  /reports/receiving.csv:
+    get:
+      tags: [reports]
+      summary: Receiving register CSV (overview.view; UTF-8 BOM, frontend columns, formula-prefix guard)
+      parameters:
+        - { name: from, in: query, schema: { type: string, format: date } }
+        - { name: to, in: query, schema: { type: string, format: date } }
+      responses:
+        '200': { description: CSV, content: { text/csv: { schema: { type: string } } } }
+  /admin/users:
+    get:
+      tags: [admin]
+      summary: User list (admin.users)
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { type: object, required: [data], properties: { data: { type: array, items: { $ref: '#/components/schemas/User' } } } } } } }
+    post:
+      tags: [admin]
+      summary: Create a user (admin.users, Idempotency-Key required) - one-time temporaryPassword
+      parameters: [{ $ref: '#/components/parameters/IdempotencyKey' }]
+      requestBody:
+        required: true
+        content: { application/json: { schema: { type: object, required: [username, displayName, roles], properties: { username: { type: string, pattern: '^[a-z0-9][a-z0-9._-]{2,31}$' }, displayName: { type: string, maxLength: 100 }, roles: { type: array, minItems: 1, items: { $ref: '#/components/schemas/RoleCode' } } }, additionalProperties: false } } }
+      responses:
+        '201': { description: Created user with temporaryPassword, content: { application/json: { schema: { type: object, required: [data], properties: { data: { allOf: [{ $ref: '#/components/schemas/User' }, { type: object, required: [temporaryPassword], properties: { temporaryPassword: { type: string } } }] } } } } } }
+  /admin/users/{id}:
+    parameters: [{ name: id, in: path, required: true, schema: { type: string, format: uuid } }]
+    patch:
+      tags: [admin]
+      summary: Update displayName/roles/active (admin.users, Idempotency-Key); rotates sessions on role or active change
+      parameters: [{ $ref: '#/components/parameters/IdempotencyKey' }]
+      requestBody:
+        required: true
+        content: { application/json: { schema: { type: object, properties: { displayName: { type: string }, roles: { type: array, minItems: 1, items: { $ref: '#/components/schemas/RoleCode' } }, active: { type: boolean } }, additionalProperties: false, minProperties: 1 } } }
+      responses:
+        '200': { $ref: '#/components/responses/User' }
+  /admin/users/{id}/reset-password:
+    parameters: [{ name: id, in: path, required: true, schema: { type: string, format: uuid } }]
+    post:
+      tags: [admin]
+      summary: Reset to a new one-time temporary password and revoke the target's sessions (admin.users, Idempotency-Key required)
+      parameters: [{ $ref: '#/components/parameters/IdempotencyKey' }]
+      responses:
+        '200': { description: temporaryPassword, content: { application/json: { schema: { type: object, required: [data], properties: { data: { type: object, required: [temporaryPassword], properties: { temporaryPassword: { type: string } } } } } } } }
+  /document-packages:
+    get:
+      tags: [documents]
+      summary: All packages (docs.prepare), updatedAt DESC
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { type: object, required: [data], properties: { data: { type: array, items: { $ref: '#/components/schemas/DocumentPackageView' } } } } } } }
+    post:
+      tags: [documents]
+      summary: Create a package (docs.prepare, Idempotency-Key required)
+      parameters: [{ $ref: '#/components/parameters/IdempotencyKey' }]
+      requestBody:
+        required: true
+        content: { application/json: { schema: { type: object, required: [visitIds], properties: { visitIds: { type: array, minItems: 1, items: { type: string, format: uuid } }, invoiceRef: { type: string, maxLength: 40 } }, additionalProperties: false } } }
+      responses:
+        '201': { $ref: '#/components/responses/PackageView' }
+        '422': { $ref: '#/components/responses/Error' }
+  /document-packages/{id}:
+    parameters: [{ name: id, in: path, required: true, schema: { type: string, format: uuid } }]
+    get:
+      tags: [documents]
+      summary: Package view (docs.prepare or ho.inbox when HO_VISIBLE)
+      responses:
+        '200': { $ref: '#/components/responses/PackageView' }
+        '404': { $ref: '#/components/responses/Error' }
+    patch:
+      tags: [documents]
+      summary: Update visits/invoice (docs.prepare; GATE_EDITABLE states only)
+      parameters:
+        - { $ref: '#/components/parameters/IdempotencyKey' }
+        - { $ref: '#/components/parameters/IfMatch' }
+      requestBody:
+        required: true
+        content: { application/json: { schema: { type: object, properties: { visitIds: { type: array, minItems: 1, items: { type: string, format: uuid } }, invoiceRef: { type: string, nullable: true } }, additionalProperties: false, minProperties: 1 } } }
+      responses:
+        '200': { $ref: '#/components/responses/PackageView' }
+        '422': { $ref: '#/components/responses/Error' }
+  /document-packages/{id}/items/{category}/applicability:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      - { name: category, in: path, required: true, schema: { $ref: '#/components/schemas/DocCategory' } }
+    put:
+      tags: [documents]
+      summary: Mark a row not applicable (or undo with null) (docs.prepare; reason max 300)
+      parameters:
+        - { $ref: '#/components/parameters/IdempotencyKey' }
+        - { $ref: '#/components/parameters/IfMatch' }
+      requestBody:
+        required: true
+        content: { application/json: { schema: { type: object, required: [notApplicableReason], properties: { notApplicableReason: { type: [string, 'null'], maxLength: 300 } }, additionalProperties: false } } }
+      responses:
+        '200': { $ref: '#/components/responses/PackageView' }
+        '422': { $ref: '#/components/responses/Error' }
+  /document-packages/{id}/actions:
+    parameters: [{ name: id, in: path, required: true, schema: { type: string, format: uuid } }]
+    post:
+      tags: [documents]
+      summary: Package action; capability depends on kind (docs.prepare / docs.submit / ho.review)
+      parameters:
+        - { $ref: '#/components/parameters/IdempotencyKey' }
+        - { $ref: '#/components/parameters/IfMatch' }
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/PackageAction' } } }
+      responses:
+        '200': { $ref: '#/components/responses/PackageView' }
+        '422': { $ref: '#/components/responses/Error' }
+  /document-packages/{id}/files:
+    parameters: [{ name: id, in: path, required: true, schema: { type: string, format: uuid } }]
+    post:
+      tags: [documents]
+      summary: Attach a PDF (docs.prepare) - multipart category+file, %PDF- magic bytes, max MAX_UPLOAD_MB, ClamAV-scanned
+      parameters:
+        - { $ref: '#/components/parameters/IdempotencyKey' }
+        - { $ref: '#/components/parameters/IfMatch' }
+      requestBody:
+        required: true
+        content: { multipart/form-data: { schema: { type: object, required: [category, file], properties: { category: { $ref: '#/components/schemas/DocCategory' }, file: { type: string, format: binary } } } } }
+      responses:
+        '201': { $ref: '#/components/responses/PackageView' }
+        '413': { $ref: '#/components/responses/Error' }
+        '422': { $ref: '#/components/responses/Error' }
+  /document-packages/{id}/files/{fileId}:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      - { name: fileId, in: path, required: true, schema: { type: string, format: uuid } }
+    delete:
+      tags: [documents]
+      summary: Soft-delete a file (docs.prepare)
+      parameters:
+        - { name: category, in: query, required: true, schema: { $ref: '#/components/schemas/DocCategory' } }
+        - { $ref: '#/components/parameters/IdempotencyKey' }
+        - { $ref: '#/components/parameters/IfMatch' }
+      responses:
+        '200': { $ref: '#/components/responses/PackageView' }
+        '404': { $ref: '#/components/responses/Error' }
+  /document-files/{fileId}/content:
+    parameters: [{ name: fileId, in: path, required: true, schema: { type: string, format: uuid } }]
+    get:
+      tags: [documents]
+      summary: Stream the PDF (docs.prepare, or ho.inbox when HO_VISIBLE)
+      responses:
+        '200':
+          description: PDF bytes
+          headers:
+            Content-Type: { schema: { const: application/pdf } }
+            Content-Disposition: { schema: { type: string } }
+            X-Content-Type-Options: { schema: { const: nosniff } }
+            Cache-Control: { schema: { const: 'private, no-store' } }
+        '404': { $ref: '#/components/responses/Error' }
+  /head-office/cases:
+    get:
+      tags: [head-office]
+      summary: HO_VISIBLE packages (ho.inbox), updatedAt DESC
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { type: object, required: [data], properties: { data: { type: array, items: { $ref: '#/components/schemas/DocumentPackageView' } } } } } } }
+  /head-office/reviews:
+    post:
+      tags: [head-office]
+      summary: Check an attached item (ho.review; issue requires a note max 500)
+      parameters:
+        - { $ref: '#/components/parameters/IdempotencyKey' }
+        - { $ref: '#/components/parameters/IfMatch' }
+      requestBody:
+        required: true
+        content: { application/json: { schema: { type: object, required: [packageId, category, check], properties: { packageId: { type: string, format: uuid }, category: { $ref: '#/components/schemas/DocCategory' }, check: { type: string, enum: [ok, issue, unchecked] }, note: { type: string, maxLength: 500 } }, additionalProperties: false } } }
+      responses:
+        '200': { $ref: '#/components/responses/PackageView' }
+        '422': { $ref: '#/components/responses/Error' }
+  /head-office/cases/{id}/erp-milestones:
+    parameters: [{ name: id, in: path, required: true, schema: { type: string, format: uuid } }]
+    post:
+      tags: [head-office]
+      summary: Confirm or reverse a milestone in order (erp.confirm; manual staff confirmation)
+      parameters:
+        - { $ref: '#/components/parameters/IdempotencyKey' }
+        - { $ref: '#/components/parameters/IfMatch' }
+      requestBody:
+        required: true
+        content: { application/json: { schema: { type: object, required: [type, action, verifiedInDataManByStaff], properties: { type: { type: string, enum: [plant_head_grn_approval, purchase_voucher, final_posting] }, action: { type: string, enum: [confirm, reverse] }, dataManRef: { type: string, maxLength: 40 }, erpOccurredAt: { type: string, format: date-time }, note: { type: string, maxLength: 500 }, verifiedInDataManByStaff: { type: boolean } }, additionalProperties: false } } }
+      responses:
+        '200': { $ref: '#/components/responses/PackageView' }
+        '422': { $ref: '#/components/responses/Error' }
+  /head-office/cases/{id}/reminders:
+    parameters: [{ name: id, in: path, required: true, schema: { type: string, format: uuid } }]
+    post:
+      tags: [head-office]
+      summary: Log an in-app reminder while Plant Head approval is pending (erp.confirm)
+      parameters:
+        - { $ref: '#/components/parameters/IdempotencyKey' }
+        - { $ref: '#/components/parameters/IfMatch' }
+      requestBody:
+        required: true
+        content: { application/json: { schema: { type: object, required: [note], properties: { note: { type: string, minLength: 1, maxLength: 300 } }, additionalProperties: false } } }
+      responses:
+        '200': { $ref: '#/components/responses/PackageView' }
+        '422': { $ref: '#/components/responses/Error' }
+components:
+  securitySchemes:
+    cookieAuth: { type: apiKey, in: cookie, name: __Host-kpmpl_sid }
+    bearerAuth: { type: http, scheme: bearer, bearerFormat: JWT }
+  parameters:
+    IdempotencyKey: { name: Idempotency-Key, in: header, required: true, schema: { type: string, minLength: 8, maxLength: 128 } }
+    IfMatch: { name: If-Match, in: header, required: true, schema: { type: integer, minimum: 1 }, description: Integer version (not a quoted ETag) }
+    VisitId: { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+  responses:
+    Error:
+      description: Brief section 3 error envelope
+      content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } }
+    User:
+      description: OK
+      content: { application/json: { schema: { type: object, required: [data], properties: { data: { $ref: '#/components/schemas/User' } } } } }
+    Visit:
+      description: OK
+      content: { application/json: { schema: { type: object, required: [data], properties: { data: { $ref: '#/components/schemas/ReceivingVisit' } } } } }
+    VisitPage:
+      description: OK
+      content: { application/json: { schema: { type: object, required: [data], properties: { data: { $ref: '#/components/schemas/VisitPage' } } } } }
+    QcQueue:
+      description: OK
+      content: { application/json: { schema: { type: object, required: [data], properties: { data: { type: array, items: { $ref: '#/components/schemas/QcQueueItem' } } } } } }
+    PackageView:
+      description: OK
+      content: { application/json: { schema: { type: object, required: [data], properties: { data: { $ref: '#/components/schemas/DocumentPackageView' } } } } }
+    Ready:
+      description: Component report
+      content: { application/json: { schema: { type: object, required: [status, checks], properties: { status: { type: string, enum: [ok, unavailable] }, checks: { type: object } } } } }
+  schemas:
+    RoleCode: { type: string, enum: [gate, gate_doc, qc, ho, admin] }
+    QcStatus: { type: string, enum: [pending, in_progress, submitted, returned, accepted, accepted_with_deduction, rejected] }
+    ExitStatus: { type: string, enum: [on_premises, exited] }
+    GrnStatus: { type: string, enum: [not_recorded, reference_recorded] }
+    DocCategory: { type: string, enum: [supplier_invoice, factory_grn, weighbridge_slip, qc_slip, supporting_bill, eway_bill] }
+    PackageStatus: { type: string, enum: [draft, ready_for_gate_check, submitted_to_ho, under_ho_review, correction_requested, resubmitted, verified] }
+    Quantity:
+      type: object
+      required: [value, unit]
+      properties: { value: { type: string }, unit: { const: kg } }
+    User:
+      type: object
+      required: [id, username, displayName, roles, synthetic, active]
+      properties:
+        id: { type: string }
+        username: { type: string }
+        displayName: { type: string }
+        fullName: { type: string }
+        employeeCode: { type: string }
+        roles: { type: array, items: { $ref: '#/components/schemas/RoleCode' } }
+        synthetic: { type: boolean }
+        active: { type: boolean }
+        isActive: { type: boolean }
+        mustChangePassword: { type: boolean }
+    ReceivingVisit:
+      type: object
+      required: [id, officialGateEntryRef, vehicleNumber, supplierDisplayName, materialDisplayName, challanRef, poRef, arrivedAt, grossWeight, tareWeight, notes, qcStatus, exitStatus, grnStatus, officialGrnRef, physicalExitAt, createdAt, createdBy, updatedAt, version]
+      properties:
+        id: { type: string }
+        officialGateEntryRef: { type: string }
+        vehicleNumber: { type: string }
+        supplierDisplayName: { type: [string, 'null'] }
+        materialDisplayName: { type: [string, 'null'] }
+        challanRef: { type: [string, 'null'] }
+        poRef: { type: [string, 'null'] }
+        arrivedAt: { type: [string, 'null'], format: date-time }
+        grossWeight: { oneOf: [{ $ref: '#/components/schemas/Quantity' }, { type: 'null' }] }
+        tareWeight: { oneOf: [{ $ref: '#/components/schemas/Quantity' }, { type: 'null' }] }
+        notes: { type: [string, 'null'] }
+        qcStatus: { $ref: '#/components/schemas/QcStatus' }
+        exitStatus: { $ref: '#/components/schemas/ExitStatus' }
+        grnStatus: { $ref: '#/components/schemas/GrnStatus' }
+        officialGrnRef: { type: [string, 'null'] }
+        physicalExitAt: { type: [string, 'null'], format: date-time }
+        createdAt: { type: string, format: date-time }
+        createdBy: { type: string, description: display name }
+        updatedAt: { type: string, format: date-time }
+        version: { type: integer, minimum: 1 }
+    CreateReceivingVisitInput:
+      type: object
+      required: [officialGateEntryRef, vehicleNumber, supplierDisplayName, materialDisplayName, grossWeight]
+      properties:
+        officialGateEntryRef: { type: string, maxLength: 40 }
+        vehicleNumber: { type: string, maxLength: 30 }
+        supplierDisplayName: { type: string, maxLength: 80 }
+        materialDisplayName: { type: string, maxLength: 80 }
+        challanRef: { type: string, maxLength: 40 }
+        poRef: { type: string, maxLength: 40 }
+        arrivedAt: { type: string, format: date-time }
+        grossWeight: { type: object, required: [value, unit], properties: { value: { type: string, pattern: '^(?!0+(?:[.]0{1,3})?$)[0-9]{1,9}([.][0-9]{1,3})?$' }, unit: { const: kg } }, additionalProperties: false }
+        notes: { type: string, maxLength: 2000 }
+      additionalProperties: false
+    CorrectVisitInput:
+      type: object
+      required: [reason]
+      properties:
+        officialGateEntryRef: { type: string, maxLength: 40 }
+        vehicleNumber: { type: string, maxLength: 30 }
+        supplierDisplayName: { type: string, maxLength: 80, nullable: true }
+        materialDisplayName: { type: string, maxLength: 80, nullable: true }
+        challanRef: { type: string, nullable: true }
+        poRef: { type: string, nullable: true }
+        notes: { type: string, nullable: true }
+        grossWeight: { type: object, required: [value, unit], properties: { value: { type: string }, unit: { const: kg } }, additionalProperties: false }
+        reason: { type: string, minLength: 1, maxLength: 500 }
+      additionalProperties: false
+    VisitPage:
+      type: object
+      required: [data, page, pageSize, total]
+      properties:
+        data: { type: array, items: { $ref: '#/components/schemas/ReceivingVisit' } }
+        page: { type: integer }
+        pageSize: { type: integer }
+        total: { type: integer }
+    TimelineEvent:
+      type: object
+      required: [id, at, actor, action, source]
+      properties:
+        id: { type: string }
+        at: { type: string, format: date-time }
+        actor: { type: string }
+        action: { type: string }
+        detail: { type: string }
+        source: { type: string, enum: [app, manual_staff_confirmation] }
+    ReferenceData:
+      type: object
+      required: [suppliers, materials]
+      properties: { suppliers: { type: array, items: { type: string } }, materials: { type: array, items: { type: string } } }
+    Measurement:
+      type: object
+      required: [code, value, unit]
+      properties: { code: { type: string, enum: [moisture, impurity] }, value: { type: string, pattern: '^[0-9]{1,3}([.][0-9]{1,2})?$' }, unit: { const: percent } }
+    QcSubmitInput:
+      type: object
+      required: [measurements, intent]
+      properties:
+        measurements: { type: array, maxItems: 2, items: { $ref: '#/components/schemas/Measurement' } }
+        remarks: { type: string, maxLength: 1000 }
+        revisionReason: { type: string, maxLength: 1000 }
+        intent: { type: string, enum: [draft, submit] }
+      additionalProperties: false
+    QcRevision:
+      type: object
+      required: [revision, state, measurements, remarks, revisionReason, recordedBy, recordedAt]
+      properties:
+        revision: { type: integer }
+        state: { type: string, enum: [draft, submitted] }
+        measurements: { type: array, items: { $ref: '#/components/schemas/Measurement' } }
+        remarks: { type: [string, 'null'] }
+        revisionReason: { type: [string, 'null'] }
+        recordedBy: { type: string }
+        recordedAt: { type: string, format: date-time }
+    QcReviewNote:
+      type: object
+      required: [outcome, reason, demonstrationOnly, recordedBy, recordedAt, forRevision]
+      properties:
+        outcome: { type: string, enum: [returned, accepted, accepted_with_deduction, rejected] }
+        reason: { type: string }
+        demonstrationOnly: { type: boolean, description: 'true only on decisions recorded before D-03 was decided (2026-11-03); new decisions are false' }
+        recordedBy: { type: string }
+        recordedAt: { type: string, format: date-time }
+        forRevision: { type: integer }
+    QcInspection:
+      type: object
+      required: [inspectionId, visitId, qcStatus, revisions, reviews, deductionCalculation]
+      properties:
+        inspectionId: { type: string }
+        visitId: { type: string }
+        qcStatus: { $ref: '#/components/schemas/QcStatus' }
+        revisions: { type: array, items: { $ref: '#/components/schemas/QcRevision' } }
+        reviews: { type: array, items: { $ref: '#/components/schemas/QcReviewNote' } }
+        deductionCalculation: { type: object, required: [status, value], properties: { status: { const: not_configured }, value: { type: 'null' } } }
+    QcQueueItem:
+      type: object
+      required: [visit, latestRevision, lastReturnReason]
+      properties:
+        visit: { $ref: '#/components/schemas/ReceivingVisit' }
+        latestRevision: { type: [integer, 'null'] }
+        lastReturnReason: { type: [string, 'null'] }
+    OverviewData:
+      type: object
+      required: [generatedAt, receiving, qc, gate, documents, erp, oldestAwaitingQc, longestOnPremises, grnPendingList]
+      properties:
+        generatedAt: { type: string, format: date-time }
+        receiving: { type: object, required: [total, today, onPremises], properties: { total: { type: integer }, today: { type: integer }, onPremises: { type: integer } } }
+        qc: { type: object, required: [awaitingInspection, inProgress, returned, awaitingReview, decided], properties: { awaitingInspection: { type: integer }, inProgress: { type: integer }, returned: { type: integer }, awaitingReview: { type: integer }, decided: { type: integer } } }
+        gate: { type: object, required: [needsTare, readyToExit, exitedToday, grnPending], properties: { needsTare: { type: integer }, readyToExit: { type: integer }, exitedToday: { type: integer }, grnPending: { type: integer } } }
+        documents: { type: object, required: [draft, withHo, correctionRequested, verified], properties: { draft: { type: integer }, withHo: { type: integer }, correctionRequested: { type: integer }, verified: { type: integer } } }
+        erp: { type: object, required: [approvalPending, voucherPending, postingPending, posted], properties: { approvalPending: { type: integer }, voucherPending: { type: integer }, postingPending: { type: integer }, posted: { type: integer } } }
+        oldestAwaitingQc: { type: array, items: { $ref: '#/components/schemas/ReceivingVisit' } }
+        longestOnPremises: { type: array, items: { $ref: '#/components/schemas/ReceivingVisit' } }
+        grnPendingList: { type: array, items: { $ref: '#/components/schemas/ReceivingVisit' } }
+    DocumentFile:
+      type: object
+      required: [id, name, sizeBytes, mimeType, uploadedAt, uploadedBy, synthetic]
+      properties:
+        id: { type: string }
+        name: { type: string }
+        sizeBytes: { type: integer }
+        mimeType: { type: string }
+        uploadedAt: { type: string, format: date-time }
+        uploadedBy: { type: string }
+        synthetic: { type: boolean }
+    DocumentItem:
+      type: object
+      required: [category, state, files, notApplicableReason, hoCheck, hoNote]
+      properties:
+        category: { $ref: '#/components/schemas/DocCategory' }
+        state: { type: string, enum: [missing, attached, not_applicable] }
+        files: { type: array, items: { $ref: '#/components/schemas/DocumentFile' } }
+        notApplicableReason: { type: [string, 'null'] }
+        hoCheck: { type: string, enum: [unchecked, ok, issue] }
+        hoNote: { type: [string, 'null'] }
+    CorrectionRequest:
+      type: object
+      required: [id, reason, categories, requestedBy, requestedAt, resolvedAt, responseNote]
+      properties:
+        id: { type: string }
+        reason: { type: string }
+        categories: { type: array, items: { $ref: '#/components/schemas/DocCategory' } }
+        requestedBy: { type: string }
+        requestedAt: { type: string, format: date-time }
+        resolvedAt: { type: [string, 'null'], format: date-time }
+        responseNote: { type: [string, 'null'] }
+    ErpMilestone:
+      type: object
+      required: [type, status, dataManRef, erpOccurredAt, note, confirmedBy, confirmedAt, source]
+      properties:
+        type: { type: string, enum: [plant_head_grn_approval, purchase_voucher, final_posting] }
+        status: { type: string, enum: [pending, confirmed] }
+        dataManRef: { type: [string, 'null'] }
+        erpOccurredAt: { type: [string, 'null'], format: date-time }
+        note: { type: [string, 'null'] }
+        confirmedBy: { type: [string, 'null'] }
+        confirmedAt: { type: [string, 'null'], format: date-time }
+        source: { type: string, enum: [manual_staff_confirmation, staff_confirmed] }
+    Reminder:
+      type: object
+      required: [id, recipient, note, sentBy, sentAt]
+      properties:
+        id: { type: string }
+        recipient: { type: string }
+        note: { type: string }
+        sentBy: { type: string }
+        sentAt: { type: string, format: date-time }
+    DocumentPackageView:
+      type: object
+      required: [id, packageRef, visitIds, invoiceRef, supplierDisplayName, status, checklistVersion, items, submittedBy, submittedAt, corrections, erp, reminders, history, createdBy, createdAt, updatedAt, version, visits]
+      properties:
+        id: { type: string }
+        packageRef: { type: string }
+        visitIds: { type: array, items: { type: string } }
+        invoiceRef: { type: [string, 'null'] }
+        supplierDisplayName: { type: [string, 'null'] }
+        status: { $ref: '#/components/schemas/PackageStatus' }
+        checklistVersion: { const: 'demo-checklist-0 (not approved)' }
+        items:
+          type: array
+          minItems: 6
+          maxItems: 6
+          items: { $ref: '#/components/schemas/DocumentItem' }
+        submittedBy: { type: [string, 'null'] }
+        submittedAt: { type: [string, 'null'], format: date-time }
+        corrections: { type: array, items: { $ref: '#/components/schemas/CorrectionRequest' } }
+        erp:
+          type: array
+          minItems: 3
+          maxItems: 3
+          items: { $ref: '#/components/schemas/ErpMilestone' }
+        reminders: { type: array, items: { $ref: '#/components/schemas/Reminder' } }
+        history: { type: array, items: { $ref: '#/components/schemas/TimelineEvent' } }
+        createdBy: { type: string }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+        version: { type: integer }
+        visits: { type: array, items: { $ref: '#/components/schemas/ReceivingVisit' } }
+    PackageAction:
+      oneOf:
+        - { type: object, required: [kind], properties: { kind: { const: mark_ready } }, additionalProperties: false }
+        - { type: object, required: [kind, reason], properties: { kind: { const: back_to_draft }, reason: { type: string, minLength: 1, maxLength: 1000 } }, additionalProperties: false }
+        - { type: object, required: [kind, confirmComplete], properties: { kind: { const: submit_to_ho }, confirmComplete: { const: true }, responseNote: { type: string, maxLength: 1000 } }, additionalProperties: false }
+        - { type: object, required: [kind], properties: { kind: { const: start_review } }, additionalProperties: false }
+        - { type: object, required: [kind, reason, categories], properties: { kind: { const: request_correction }, reason: { type: string, maxLength: 1000 }, categories: { type: array, minItems: 1, items: { $ref: '#/components/schemas/DocCategory' } } }, additionalProperties: false }
+        - { type: object, required: [kind], properties: { kind: { const: verify } }, additionalProperties: false }
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [code, message, requestId]
+          properties:
+            code: { type: string, enum: [UNAUTHENTICATED, FORBIDDEN, NOT_FOUND, VALIDATION_FAILED, DUPLICATE_CANDIDATE, VERSION_CONFLICT, DOMAIN_RULE, RATE_LIMITED, SERVER_ERROR] }
+            message: { type: string }
+            fields: { type: object, additionalProperties: { type: string } }
+            requestId: { type: string }
+            meta: { type: object }

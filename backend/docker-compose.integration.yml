@@ -1,0 +1,75 @@
+# KPMPL integration / e2e stack — override of docker-compose.yml (Phase 2).
+# Adds the browser-facing services on top of the dev infra (postgres/redis/minio/clamav stay as-is):
+#   web      Vite dev server on http://localhost:5173 (brief §10 http adapter, demo chrome)
+#   web-prod the production nginx image on http://localhost:8080, profile "prod-like"
+#
+# Usage (from backend/):
+#   docker compose -f docker-compose.yml -f docker-compose.integration.yml up -d --build
+#   docker compose -f docker-compose.yml -f docker-compose.integration.yml --profile prod-like up -d --build
+#
+# The one-shot `migrate` service (base compose) runs `prisma migrate deploy` + the idempotent
+# demo seed before the api starts; DEMO_PASSWORD / S3 keys / POSTGRES_* come from backend/.env
+# (APP_MODE=demo refuses to boot without DEMO_PASSWORD). Both web origins must be in the exact
+# WEB_ORIGIN allowlist: the backend checks Origin on every write (CORS + CSRF, brief §3).
+#
+# Reset everything including demo data: append `down -v` to either command above.
+name: kpmpl
+
+services:
+  api:
+    environment:
+      APP_MODE: demo
+      DEMO_MODE: "true"
+      NODE_ENV: development
+      # Exact-origin allowlist for both e2e projects (5173 dev, 8080 prod-like).
+      WEB_ORIGIN: http://localhost:5173,http://localhost:8080
+      MAX_UPLOAD_MB: "10"
+      # Two Playwright workers hammer list endpoints (pageSize 500) in parallel; the
+      # default pool (~cpus*2+1) saturates and writes queue 10s+ for a connection.
+      DATABASE_URL: postgresql://${POSTGRES_USER:-kpmpl}:${POSTGRES_PASSWORD:-change-me}@postgres:5432/${POSTGRES_DB:-kpmpl}?schema=public&connection_limit=20
+
+  web:
+    # Vite dev server bound-mounting the frontend repo (a separate git checkout at
+    # ../frontend/kpmpl-frontend). Dependencies install into a named volume so the host's
+    # Windows node_modules never shadows the container's Linux ones.
+    image: node:22-alpine
+    working_dir: /app
+    command: ["sh", "-c", "npm ci --no-audit --no-fund && npm run dev"]
+    environment:
+      VITE_API_MODE: http
+      VITE_APP_MODE: demo
+      VITE_API_BASE_URL: /api/v1
+      # vite.config.ts proxies /api to this target, so the browser talks to the Vite origin
+      # only and the __Host- session cookie stays first-party.
+      VITE_PROXY_TARGET: http://api:3000
+    volumes:
+      - ../frontend/kpmpl-frontend:/app
+      - web_node_modules:/app/node_modules
+    ports:
+      - "5173:5173"
+    depends_on:
+      api:
+        condition: service_healthy
+
+  web-prod:
+    # Production-like origin: the frontend Dockerfile build (Vite bakes VITE_* at build time),
+    # served by nginx-unprivileged on 8080 with the /api proxy snippet.
+    profiles: ["prod-like"]
+    build:
+      context: ../frontend/kpmpl-frontend
+      dockerfile: Dockerfile
+      args:
+        VITE_API_MODE: http
+        VITE_APP_MODE: production
+        VITE_API_BASE_URL: /api/v1
+    environment:
+      # Dockerfile default points at a "backend" service name; this stack calls it "api".
+      BACKEND_UPSTREAM: http://api:3000
+    ports:
+      - "8080:8080"
+    depends_on:
+      api:
+        condition: service_healthy
+
+volumes:
+  web_node_modules:
