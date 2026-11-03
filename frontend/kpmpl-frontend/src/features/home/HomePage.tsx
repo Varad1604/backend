@@ -1,7 +1,7 @@
 import type { ComponentType } from 'react';
 import { Link } from 'react-router-dom';
 import {
-  BarChart3, ClipboardCheck, DoorOpen, FileText, FlaskConical, Inbox, ListChecks, Receipt, Scale, Send, Truck, Users, type LucideProps,
+  BarChart3, Calculator, ClipboardCheck, DoorOpen, FileText, FlaskConical, Inbox, ListChecks, Receipt, Scale, Send, Stamp, Truck, Users, type LucideProps,
 } from 'lucide-react';
 import { api } from '../../api';
 import { useAsync } from '../../hooks/useAsync';
@@ -14,7 +14,8 @@ import { followUpTests } from '../followup/FollowUpListPage';
 
 type CountKey =
   | 'today' | 'needsTare' | 'readyExit' | 'grnPending' | 'qcWaiting' | 'qcDecide'
-  | 'docsPrep' | 'docsSend' | 'docsFix' | 'hoCases' | 'erpPending' | 'activeUsers' | 'onPremises';
+  | 'docsPrep' | 'docsSend' | 'docsFix' | 'hoCases' | 'erpPending' | 'activeUsers' | 'onPremises'
+  | 'acctNew' | 'acctMine' | 'acctHead' | 'acctPost';
 
 interface HomeCard {
   id: string; title: string; desc: string; to: string; icon: ComponentType<LucideProps>;
@@ -66,6 +67,28 @@ const cardsByRole: Record<RoleCode, { main: HomeCard[]; more: HomeCard[] }> = {
     ],
     more: [{ id: 'reg', title: 'All trucks', desc: '', to: '/receiving', icon: ListChecks }],
   },
+  accountant: {
+    main: [
+      { id: 'acct-new', title: 'New from Head Office', desc: 'Verified packages waiting for accounting.', to: '/accounting?tab=new', icon: Inbox, count: 'acctNew', countText: waiting },
+      { id: 'acct-mine', title: 'Continue accounting', desc: 'Packages you are checking now.', to: '/accounting?tab=accountant', icon: Calculator, count: 'acctMine', countText: waiting },
+    ],
+    more: [
+      { id: 'acct-posted', title: 'Posted bills', desc: '', to: '/accounting?tab=posted', icon: Receipt },
+      { id: 'reg', title: 'All trucks', desc: '', to: '/receiving', icon: ListChecks },
+      { id: 'ov', title: 'Overview', desc: '', to: '/overview', icon: BarChart3 },
+    ],
+  },
+  head_accountant: {
+    main: [
+      { id: 'acct-head', title: 'To approve', desc: 'The Accountant handed these over.', to: '/accounting?tab=head', icon: ClipboardCheck, count: 'acctHead', countText: waiting },
+      { id: 'acct-post', title: 'Ready to post', desc: 'Approved packages waiting for the bill.', to: '/accounting?tab=approved', icon: Stamp, count: 'acctPost', countText: waiting },
+    ],
+    more: [
+      { id: 'acct-new', title: 'New from Head Office', desc: '', to: '/accounting?tab=new', icon: Inbox },
+      { id: 'acct-posted', title: 'Posted bills', desc: '', to: '/accounting?tab=posted', icon: Receipt },
+      { id: 'ov', title: 'Overview', desc: '', to: '/overview', icon: BarChart3 },
+    ],
+  },
   admin: {
     main: [
       { id: 'users', title: 'Users', desc: 'Add people, set roles, reset passwords.', to: '/admin/users', icon: Users, count: 'activeUsers', countText: (n) => `${n} active` },
@@ -116,6 +139,14 @@ async function loadCounts(user: User, need: Set<CountKey>): Promise<Partial<Reco
     jobs.push(api.listPackages('ho').then((ps) => {
       out.hoCases = ps.filter((p) => ['submitted_to_ho', 'resubmitted', 'under_ho_review'].includes(p.status)).length;
       out.erpPending = ps.filter((p) => p.erp.some((m) => m.status === 'pending')).length;
+    }));
+  }
+  if (['acctNew', 'acctMine', 'acctHead', 'acctPost'].some((k) => need.has(k as CountKey)) && can(user, 'accounting.inbox')) {
+    jobs.push(api.listPackages('accounting').then((ps) => {
+      out.acctNew = ps.filter((p) => p.status === 'verified').length;
+      out.acctMine = ps.filter((p) => p.status === 'with_accounting').length;
+      out.acctHead = ps.filter((p) => p.status === 'with_head_accountant').length;
+      out.acctPost = ps.filter((p) => p.status === 'accounting_approved').length;
     }));
   }
   if (need.has('activeUsers') && can(user, 'admin.users')) {

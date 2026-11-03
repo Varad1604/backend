@@ -20,6 +20,10 @@ export type Capability =
   | 'ho.inbox'           // view HO inbox and PDFs
   | 'ho.review'          // verify documents / request corrections
   | 'erp.confirm'        // record staff-confirmed DataMan milestones and reminders
+  | 'accounting.inbox'   // view the accounting queue and packages in accounting states
+  | 'accounting.review'  // Accountant: start accounting, hand over, correct with reason
+  | 'accounting.approve' // Head Accountant: approve or return to the Accountant
+  | 'accounting.post'    // Head Accountant: post the bill (final internal state)
   | 'admin.users';
 
 const grants: Record<RoleCode, Capability[]> = {
@@ -27,10 +31,12 @@ const grants: Record<RoleCode, Capability[]> = {
   gate_doc: ['receiving.view', 'overview.view', 'docs.prepare', 'docs.submit'],
   qc: ['receiving.view', 'qc.queue.view', 'qc.measure', 'qc.decide', 'overview.view'],
   ho: ['receiving.view', 'overview.view', 'ho.inbox', 'ho.review', 'erp.confirm'],
+  accountant: ['receiving.view', 'overview.view', 'accounting.inbox', 'accounting.review'],
+  head_accountant: ['receiving.view', 'overview.view', 'accounting.inbox', 'accounting.review', 'accounting.approve', 'accounting.post'],
   admin: ['receiving.view', 'overview.view', 'ho.inbox', 'admin.users'],
 };
 
-export const ALL_ROLES: RoleCode[] = ['gate', 'gate_doc', 'qc', 'ho', 'admin'];
+export const ALL_ROLES: RoleCode[] = ['gate', 'gate_doc', 'qc', 'ho', 'accountant', 'head_accountant', 'admin'];
 
 export function capsFor(role: RoleCode): Capability[] {
   return grants[role];
@@ -45,6 +51,8 @@ export const roleLabel: Record<RoleCode, string> = {
   gate_doc: 'Gate Document Authority',
   qc: 'QC Operator',
   ho: 'Head Office Accounts',
+  accountant: 'Accountant',
+  head_accountant: 'Head Accountant',
   admin: 'System Admin',
 };
 
@@ -62,6 +70,10 @@ export const capabilityLabel: Record<Capability, string> = {
   'ho.inbox': 'View Head Office inbox and PDFs',
   'ho.review': 'Verify documents / request corrections',
   'erp.confirm': 'Record DataMan milestones and reminders',
+  'accounting.inbox': 'View the accounting queue and packages',
+  'accounting.review': 'Start accounting and hand over to the Head Accountant',
+  'accounting.approve': 'Approve accounting or return it to the Accountant',
+  'accounting.post': 'Post the bill (final accounting state)',
   'admin.users': 'Administer users and roles',
 };
 

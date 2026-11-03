@@ -18,6 +18,7 @@ export const navItems: NavItem[] = [
   { to: '/documents', label: 'Documents', caps: ['docs.prepare'] },
   { to: '/head-office', label: 'HO inbox', caps: ['ho.inbox'] },
   { to: '/erp-milestones', label: 'ERP milestones', caps: ['ho.inbox'] },
+  { to: '/accounting', label: 'Accounting', caps: ['accounting.inbox'] },
   { to: '/overview', label: 'Overview', caps: ['overview.view'] },
   { to: '/admin/users', label: 'Users', caps: ['admin.users'] },
 ];

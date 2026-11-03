@@ -10,10 +10,15 @@ describe('QC decision by the QC operator (mock adapter, D-03)', () => {
     resetDemoData();
   });
 
-  it('has five roles and five demo accounts; only qc holds qc.decide', () => {
-    expect(ALL_ROLES).toEqual(['gate', 'gate_doc', 'qc', 'ho', 'admin']);
-    expect(DEMO_ACCOUNTS.map((a) => a.username)).toEqual(['demo-gate', 'demo-qc', 'demo-docs', 'demo-ho', 'demo-admin']);
+  it('has seven roles and seven demo accounts; only qc holds qc.decide; accounting caps are split', () => {
+    expect(ALL_ROLES).toEqual(['gate', 'gate_doc', 'qc', 'ho', 'accountant', 'head_accountant', 'admin']);
+    expect(DEMO_ACCOUNTS.map((a) => a.username)).toEqual(['demo-gate', 'demo-qc', 'demo-docs', 'demo-ho', 'demo-accountant', 'demo-head-act', 'demo-admin']);
     expect(ALL_ROLES.filter((r) => capsFor(r).includes('qc.decide'))).toEqual(['qc']);
+    // Upgrade 2026-11-03: the Accountant works and hands over; only the Head Accountant approves/posts.
+    expect(ALL_ROLES.filter((r) => capsFor(r).includes('accounting.review'))).toEqual(['accountant', 'head_accountant']);
+    expect(ALL_ROLES.filter((r) => capsFor(r).includes('accounting.approve'))).toEqual(['head_accountant']);
+    expect(ALL_ROLES.filter((r) => capsFor(r).includes('accounting.post'))).toEqual(['head_accountant']);
+    expect(ALL_ROLES.filter((r) => capsFor(r).includes('erp.confirm'))).toEqual(['ho']);
   });
 
   it('lets the same QC operator submit readings and then decide; the decision is not a demo record', async () => {

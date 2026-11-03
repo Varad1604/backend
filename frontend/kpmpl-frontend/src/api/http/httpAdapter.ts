@@ -300,7 +300,7 @@ export function createHttpAdapter(deps: HttpAdapterDeps): ReceivingApi {
     adminResetPassword: (id, o) => call<TemporaryPasswordResult>('POST', `/admin/users/${enc(id)}/reset-password`, { idempotencyKey: o.idempotencyKey }),
 
     /* ---- 5.7 document packages ---- */
-    listPackages: (scope) => call<DocumentPackageView[]>('GET', scope === 'ho' ? '/head-office/cases' : '/document-packages'),
+    listPackages: (scope) => call<DocumentPackageView[]>('GET', scope === 'ho' ? '/head-office/cases' : scope === 'accounting' ? '/accounting/queue' : '/document-packages'),
     getPackage: (id) => call<DocumentPackageView>('GET', `/document-packages/${enc(id)}`),
     createPackage: (input, o) => call<DocumentPackageView>('POST', '/document-packages', { json: input, idempotencyKey: o.idempotencyKey }),
     updatePackage: (id, input, o) => call<DocumentPackageView>('PATCH', `/document-packages/${enc(id)}`, { json: input, ...v(o) }),
@@ -324,6 +324,9 @@ export function createHttpAdapter(deps: HttpAdapterDeps): ReceivingApi {
       call<DocumentPackageView>('POST', '/head-office/reviews', { json: { packageId: id, category, check, ...(note ? { note } : {}) }, ...v(o) }),
     recordErpMilestone: (id, input, o) => call<DocumentPackageView>('POST', `/head-office/cases/${enc(id)}/erp-milestones`, { json: input, ...v(o) }),
     sendReminder: (id, note, o) => call<DocumentPackageView>('POST', `/head-office/cases/${enc(id)}/reminders`, { json: { note }, ...v(o) }),
+
+    /* ---- accounting workflow (upgrade 2026-11-03) ---- */
+    accountingAction: (id, action, o) => call<DocumentPackageView>('POST', `/document-packages/${enc(id)}/accounting`, { json: action, ...v(o) }),
   };
 }
 

@@ -29,6 +29,8 @@ const tabs: { key: string; label: string; states: PackageStatus[] }[] = [
   { key: 'fix', label: 'Correction requested', states: ['correction_requested'] },
   { key: 'ho', label: 'With Head Office', states: ['submitted_to_ho', 'under_ho_review', 'resubmitted'] },
   { key: 'done', label: 'Verified', states: ['verified'] },
+  // After verification the package moves to Accounts (upgrade 2026-11-03); the Gate sees it read-only here.
+  { key: 'accounts', label: 'With Accounts', states: ['with_accounting', 'with_head_accountant', 'accounting_approved', 'bill_posted'] },
 ];
 
 /** Document packages — Gate list. */

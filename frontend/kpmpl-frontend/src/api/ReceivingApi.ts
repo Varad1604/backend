@@ -5,7 +5,7 @@
  * Swapping adapters must not change UI state meaning (17 §5).
  */
 import type {
-  AttachFileInput, ChangePasswordInput, CorrectVisitInput, CreatedUser, CreatePackageInput, CreateReceivingVisitInput, CreateUserInput,
+  AccountingAction, AttachFileInput, ChangePasswordInput, CorrectVisitInput, CreatedUser, CreatePackageInput, CreateReceivingVisitInput, CreateUserInput,
   DocCategory, DocumentPackageView, ErpMilestoneInput, OverviewData, Page, QcInspection, QcQueueItem,
   QcDecisionInput, QcSubmitInput, ReceivingVisit, RecordExitInput, RecordGrnInput, RecordTareInput,
   ReferenceData, TemporaryPasswordResult, TimelineEvent, UpdatePackageInput, UpdateUserInput, User, VisitListQuery,
@@ -58,7 +58,9 @@ export interface ReceivingApi {
   adminResetPassword(userId: string, opts: WriteOptions): Promise<TemporaryPasswordResult>;
 
   // module 2 — documents, Head Office, ERP milestones
-  listPackages(scope: 'gate' | 'ho'): Promise<DocumentPackageView[]>;
+  /** scope: 'gate' = the preparer's list (all states), 'ho' = HO-visible cases,
+   *  'accounting' = packages from HO verification onward (upgrade 2026-11-03). */
+  listPackages(scope: 'gate' | 'ho' | 'accounting'): Promise<DocumentPackageView[]>;
   getPackage(id: string): Promise<DocumentPackageView>;
   createPackage(input: CreatePackageInput, opts: WriteOptions): Promise<DocumentPackageView>;
   updatePackage(id: string, input: UpdatePackageInput, opts: VersionedWrite): Promise<DocumentPackageView>;
@@ -69,6 +71,8 @@ export interface ReceivingApi {
   hoCheckItem(id: string, category: DocCategory, check: 'ok' | 'issue' | 'unchecked', note: string | null, opts: VersionedWrite): Promise<DocumentPackageView>;
   recordErpMilestone(id: string, input: ErpMilestoneInput, opts: VersionedWrite): Promise<DocumentPackageView>;
   sendReminder(id: string, note: string, opts: VersionedWrite): Promise<DocumentPackageView>;
+  /** Accounting workflow actions: start, hand over, approve, post, return, correct (upgrade 2026-11-03). */
+  accountingAction(id: string, action: AccountingAction, opts: VersionedWrite): Promise<DocumentPackageView>;
   /**
    * URL the PDF viewer loads for a stored file, or null when no content is available.
    * http: `${base}/document-files/{id}/content` (same-origin, cookie-authorised, server checks access).

@@ -1,4 +1,4 @@
-import type { DocCategory, ErpMilestoneType, ExitStatus, GrnStatus, PackageStatus, QcStatus } from './types';
+import type { AccountingStage, DocCategory, ErpMilestoneType, ExitStatus, GrnStatus, PackageStatus, QcStatus } from './types';
 
 export type Tone = 'neutral' | 'info' | 'progress' | 'warning' | 'success' | 'danger';
 
@@ -33,7 +33,12 @@ export const packageStatusMeta: Record<PackageStatus, { label: string; tone: Ton
   under_ho_review: { label: 'Under HO review', tone: 'progress', owner: 'Head Office' },
   correction_requested: { label: 'Correction requested', tone: 'danger', owner: 'Gate' },
   resubmitted: { label: 'Resubmitted to HO', tone: 'info', owner: 'Head Office' },
-  verified: { label: 'Documents verified', tone: 'success', owner: '—' },
+  verified: { label: 'Documents verified', tone: 'success', owner: 'Accounts' },
+  // Accounting chain (upgrade 2026-11-03): HO → Accountant → Head Accountant → Bill Posted.
+  with_accounting: { label: 'With Accounts', tone: 'progress', owner: 'Accountant' },
+  with_head_accountant: { label: 'With Head Accountant', tone: 'progress', owner: 'Head Accountant' },
+  accounting_approved: { label: 'Accounting approved', tone: 'info', owner: 'Head Accountant' },
+  bill_posted: { label: 'Bill posted', tone: 'success', owner: '—' },
 };
 
 /** Candidate document rows from the domestic waste-paper sample. Not a mandatory list. */
@@ -54,5 +59,19 @@ export const erpMilestoneMeta: Record<ErpMilestoneType, { label: string; short: 
 };
 export const ERP_ORDER: ErpMilestoneType[] = ['plant_head_grn_approval', 'purchase_voucher', 'final_posting'];
 
-/** Packages Head Office sees; drafts stay with the Gate. */
-export const HO_VISIBLE: PackageStatus[] = ['submitted_to_ho', 'under_ho_review', 'correction_requested', 'resubmitted', 'verified'];
+/** Packages Head Office sees; drafts stay with the Gate. After verification the package moves
+ * through Accounts — HO keeps sight of it the whole way (its DataMan milestones continue). */
+export const HO_VISIBLE: PackageStatus[] = [
+  'submitted_to_ho', 'under_ho_review', 'correction_requested', 'resubmitted', 'verified',
+  'with_accounting', 'with_head_accountant', 'accounting_approved', 'bill_posted',
+];
+
+/** Packages the accounting roles see, from HO verification onward. */
+export const ACCOUNTING_VISIBLE: PackageStatus[] = ['verified', 'with_accounting', 'with_head_accountant', 'accounting_approved', 'bill_posted'];
+
+export const accountingStageMeta: Record<AccountingStage, { label: string; tone: Tone }> = {
+  with_accountant: { label: 'With Accountant', tone: 'progress' },
+  with_head_accountant: { label: 'With Head Accountant', tone: 'progress' },
+  approved: { label: 'Approved for posting', tone: 'info' },
+  posted: { label: 'Posted', tone: 'success' },
+};

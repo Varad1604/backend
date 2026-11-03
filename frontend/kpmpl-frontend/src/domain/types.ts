@@ -12,7 +12,7 @@
 export type Iso8601 = string;
 export type DecimalString = string;
 
-export type RoleCode = 'gate' | 'gate_doc' | 'qc' | 'ho' | 'admin';
+export type RoleCode = 'gate' | 'gate_doc' | 'qc' | 'ho' | 'accountant' | 'head_accountant' | 'admin';
 
 export interface User {
   id: string;
@@ -268,8 +268,12 @@ export interface DocumentItem {
   hoNote: string | null;
 }
 
-/** Proposed package states (09 §3), not final KPMPL terminology. */
-export type PackageStatus = 'draft' | 'ready_for_gate_check' | 'submitted_to_ho' | 'under_ho_review' | 'correction_requested' | 'resubmitted' | 'verified';
+/** Proposed package states (09 §3), not final KPMPL terminology. After HO verification the
+ * package moves to Accounts (upgrade 2026-11-03): HO → Accountant → Head Accountant → Bill Posted. */
+export type PackageStatus =
+  | 'draft' | 'ready_for_gate_check' | 'submitted_to_ho' | 'under_ho_review'
+  | 'correction_requested' | 'resubmitted' | 'verified'
+  | 'with_accounting' | 'with_head_accountant' | 'accounting_approved' | 'bill_posted';
 
 export interface CorrectionRequest {
   id: string;
@@ -319,6 +323,8 @@ export interface DocumentPackage {
   erp: ErpMilestone[];
   reminders: Reminder[];
   history: TimelineEvent[];
+  /** Present once accounting has started on a verified package; null before that. */
+  accounting: AccountingInfo | null;
   createdBy: string;
   createdAt: Iso8601;
   updatedAt: Iso8601;
@@ -329,6 +335,51 @@ export interface DocumentPackage {
 export interface DocumentPackageView extends DocumentPackage {
   visits: ReceivingVisit[];
 }
+
+/* ---------------- Accounting workflow (upgrade 2026-11-03) ---------------- */
+
+/** Where the package is inside the accounting chain (mirrors the server's AccountingRecord). */
+export type AccountingStage = 'with_accountant' | 'with_head_accountant' | 'approved' | 'posted';
+
+/** Fields an authorized accountant may correct, each with a mandatory reason. `accountingRef`
+ * is an opaque string stored exactly as typed; whether it is the internal bill reference or a
+ * DataMan voucher reference is PENDING KPMPL. No amounts, tax or ledger fields exist yet. */
+export type AccountingField = 'accountingRef' | 'accountantNote' | 'headAccountantNote';
+
+export interface AccountingCorrectionRecord {
+  id: string;
+  field: AccountingField;
+  oldValue: string | null;
+  newValue: string | null;
+  reason: string;
+  correctedBy: string;
+  correctedAt: Iso8601;
+}
+
+export interface AccountingInfo {
+  stage: AccountingStage;
+  accountingRef: string | null;
+  accountantNote: string | null;
+  headAccountantNote: string | null;
+  startedBy: string;
+  startedAt: Iso8601;
+  submittedBy: string | null;
+  submittedAt: Iso8601 | null;
+  approvedBy: string | null;
+  approvedAt: Iso8601 | null;
+  postedBy: string | null;
+  postedAt: Iso8601 | null;
+  corrections: AccountingCorrectionRecord[];
+}
+
+export type AccountingAction =
+  | { kind: 'start_accounting' }
+  | { kind: 'submit_to_head_accountant'; confirmComplete: boolean; accountantNote?: string }
+  | { kind: 'return_to_accountant'; reason: string }
+  | { kind: 'approve_accounting'; headAccountantNote?: string }
+  /** billRef is the bill reference as typed (opaque). Duplicate posting is refused server-side. */
+  | { kind: 'post_bill'; billRef: string; note?: string }
+  | { kind: 'correct_accounting'; field: AccountingField; value: string; reason: string };
 
 export interface CreatePackageInput { visitIds: string[]; invoiceRef?: string }
 export interface UpdatePackageInput { visitIds?: string[]; invoiceRef?: string }

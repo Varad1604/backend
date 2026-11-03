@@ -4,7 +4,7 @@
 openapi: 3.1.0
 info:
   title: KPMPL Gate-to-Bill API
-  version: 1.1.0
+  version: 1.2.0
   summary: Shared API for the KPMPL web application and future Android/iOS clients.
   description: |
     Contract snapshot v1.1.0 — Phase 1 frontend<->backend alignment
@@ -40,6 +40,7 @@ tags:
   - name: admin
   - name: documents
   - name: head-office
+  - name: accounting
 paths:
   /healthz:
     get:
@@ -472,6 +473,26 @@ paths:
       responses:
         '200': { $ref: '#/components/responses/PackageView' }
         '422': { $ref: '#/components/responses/Error' }
+  /accounting/queue:
+    get:
+      tags: [accounting]
+      summary: Packages from HO verification onward (accounting.inbox), updatedAt DESC
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { type: object, required: [data], properties: { data: { type: array, items: { $ref: '#/components/schemas/DocumentPackageView' } } } } } } }
+  /document-packages/{id}/accounting:
+    parameters: [{ name: id, in: path, required: true, schema: { type: string, format: uuid } }]
+    post:
+      tags: [accounting]
+      summary: Accounting workflow action (accounting.review / approve / post; upgrade 2026-11-03)
+      parameters:
+        - { $ref: '#/components/parameters/IdempotencyKey' }
+        - { $ref: '#/components/parameters/IfMatch' }
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/AccountingAction' } } }
+      responses:
+        '200': { $ref: '#/components/responses/PackageView' }
+        '422': { $ref: '#/components/responses/Error' }
 components:
   securitySchemes:
     cookieAuth: { type: apiKey, in: cookie, name: __Host-kpmpl_sid }
@@ -503,12 +524,12 @@ components:
       description: Component report
       content: { application/json: { schema: { type: object, required: [status, checks], properties: { status: { type: string, enum: [ok, unavailable] }, checks: { type: object } } } } }
   schemas:
-    RoleCode: { type: string, enum: [gate, gate_doc, qc, ho, admin] }
+    RoleCode: { type: string, enum: [gate, gate_doc, qc, ho, accountant, head_accountant, admin] }
     QcStatus: { type: string, enum: [pending, in_progress, submitted, returned, accepted, accepted_with_deduction, rejected] }
     ExitStatus: { type: string, enum: [on_premises, exited] }
     GrnStatus: { type: string, enum: [not_recorded, reference_recorded] }
     DocCategory: { type: string, enum: [supplier_invoice, factory_grn, weighbridge_slip, qc_slip, supporting_bill, eway_bill] }
-    PackageStatus: { type: string, enum: [draft, ready_for_gate_check, submitted_to_ho, under_ho_review, correction_requested, resubmitted, verified] }
+    PackageStatus: { type: string, enum: [draft, ready_for_gate_check, submitted_to_ho, under_ho_review, correction_requested, resubmitted, verified, with_accounting, with_head_accountant, accounting_approved, bill_posted] }
     Quantity:
       type: object
       required: [value, unit]
@@ -744,11 +765,49 @@ components:
           items: { $ref: '#/components/schemas/ErpMilestone' }
         reminders: { type: array, items: { $ref: '#/components/schemas/Reminder' } }
         history: { type: array, items: { $ref: '#/components/schemas/TimelineEvent' } }
+        accounting: { oneOf: [{ $ref: '#/components/schemas/AccountingInfo' }, { type: 'null' }] }
         createdBy: { type: string }
         createdAt: { type: string, format: date-time }
         updatedAt: { type: string, format: date-time }
         version: { type: integer }
         visits: { type: array, items: { $ref: '#/components/schemas/ReceivingVisit' } }
+    AccountingInfo:
+      type: object
+      required: [stage, accountingRef, accountantNote, headAccountantNote, startedBy, startedAt, submittedBy, submittedAt, approvedBy, approvedAt, postedBy, postedAt, corrections]
+      properties:
+        stage: { type: string, enum: [with_accountant, with_head_accountant, approved, posted] }
+        accountingRef: { type: [string, 'null'] }
+        accountantNote: { type: [string, 'null'] }
+        headAccountantNote: { type: [string, 'null'] }
+        startedBy: { type: string }
+        startedAt: { type: string, format: date-time }
+        submittedBy: { type: [string, 'null'] }
+        submittedAt: { type: [string, 'null'], format: date-time }
+        approvedBy: { type: [string, 'null'] }
+        approvedAt: { type: [string, 'null'], format: date-time }
+        postedBy: { type: [string, 'null'] }
+        postedAt: { type: [string, 'null'], format: date-time }
+        corrections:
+          type: array
+          items:
+            type: object
+            required: [id, field, oldValue, newValue, reason, correctedBy, correctedAt]
+            properties:
+              id: { type: string }
+              field: { type: string, enum: [accountingRef, accountantNote, headAccountantNote] }
+              oldValue: { type: [string, 'null'] }
+              newValue: { type: [string, 'null'] }
+              reason: { type: string }
+              correctedBy: { type: string }
+              correctedAt: { type: string, format: date-time }
+    AccountingAction:
+      oneOf:
+        - { type: object, required: [kind], properties: { kind: { const: start_accounting } }, additionalProperties: false }
+        - { type: object, required: [kind, confirmComplete], properties: { kind: { const: submit_to_head_accountant }, confirmComplete: { const: true }, accountantNote: { type: string, maxLength: 1000 } }, additionalProperties: false }
+        - { type: object, required: [kind, reason], properties: { kind: { const: return_to_accountant }, reason: { type: string, minLength: 1, maxLength: 1000 } }, additionalProperties: false }
+        - { type: object, required: [kind], properties: { kind: { const: approve_accounting }, headAccountantNote: { type: string, maxLength: 1000 } }, additionalProperties: false }
+        - { type: object, required: [kind, billRef], properties: { kind: { const: post_bill }, billRef: { type: string, minLength: 1, maxLength: 40 }, note: { type: string, maxLength: 500 } }, additionalProperties: false }
+        - { type: object, required: [kind, field, value, reason], properties: { kind: { const: correct_accounting }, field: { type: string, enum: [accountingRef, accountantNote, headAccountantNote] }, value: { type: string, maxLength: 1000 }, reason: { type: string, minLength: 1, maxLength: 500 } }, additionalProperties: false }
     PackageAction:
       oneOf:
         - { type: object, required: [kind], properties: { kind: { const: mark_ready } }, additionalProperties: false }

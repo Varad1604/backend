@@ -6,6 +6,7 @@
  * decision ID and labelled in the UI as a prototype assumption.
  */
 import type { PackageAction, ReceivingApi, VersionedWrite, WriteOptions } from '../ReceivingApi';
+import type { AccountingAction } from '../../domain/types';
 import { ApiError } from '../errors';
 import { emitSessionExpired } from '../../auth/sessionEvents';
 import { buildCsv, formatDateTime } from '../../lib/format';
@@ -14,7 +15,7 @@ import { buildFixtures, demoMaterials, demoSuppliers, DEMO_PASSWORD, type MockDb
 import { ALL_ROLES, can, type Capability } from '../../auth/permissions';
 import { MIN_PASSWORD_LENGTH } from '../../domain/types';
 import { deriveNet, isDecimalString } from '../../domain/decimal';
-import { DOC_CATEGORIES, ERP_ORDER, HO_VISIBLE, docCategoryMeta, erpMilestoneMeta } from '../../domain/status';
+import { DOC_CATEGORIES, ERP_ORDER, HO_VISIBLE, ACCOUNTING_VISIBLE, docCategoryMeta, erpMilestoneMeta } from '../../domain/status';
 import type {
   CreatedUser, CreateReceivingVisitInput, DocCategory, DocumentPackage, DocumentPackageView, OverviewData, QcInspection,
   QcQueueItem, QcSubmitInput, ReceivingVisit, TimelineEvent, User,
@@ -731,17 +732,25 @@ export const mockAdapter: ReceivingApi = {
   async listPackages(scope) {
     await delay();
     const db = load();
-    if (scope === 'gate') requireCap('docs.prepare', db); else requireCap('ho.inbox', db);
-    const list = scope === 'ho' ? db.packages.filter((p) => HO_VISIBLE.includes(p.status)) : db.packages;
+    if (scope === 'gate') requireCap('docs.prepare', db);
+    else if (scope === 'ho') requireCap('ho.inbox', db);
+    else requireCap('accounting.inbox', db);
+    const list = scope === 'ho' ? db.packages.filter((p) => HO_VISIBLE.includes(p.status))
+      : scope === 'accounting' ? db.packages.filter((p) => ACCOUNTING_VISIBLE.includes(p.status))
+      : db.packages;
     return list.slice().sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)).map((p) => viewOf(db, p));
   },
 
   async getPackage(id) {
     await delay();
     const db = load();
-    const u = requireAny(['docs.prepare', 'ho.inbox'], db);
+    const u = requireAny(['docs.prepare', 'ho.inbox', 'accounting.inbox'], db);
     const p = findPkg(db, id);
-    if (!can(u, 'docs.prepare') && !HO_VISIBLE.includes(p.status)) throw new ApiError('NOT_FOUND', 'Package not found.', 404);
+    // Union visibility: preparers see all, HO sees HO_VISIBLE, Accounts sees ACCOUNTING_VISIBLE.
+    const visible = can(u, 'docs.prepare')
+      || (can(u, 'ho.inbox') && HO_VISIBLE.includes(p.status))
+      || (can(u, 'accounting.inbox') && ACCOUNTING_VISIBLE.includes(p.status));
+    if (!visible) throw new ApiError('NOT_FOUND', 'Package not found.', 404);
     return viewOf(db, p);
   },
 
@@ -766,7 +775,7 @@ export const mockAdapter: ReceivingApi = {
       items: DOC_CATEGORIES.map((category) => ({ category, state: 'missing', files: [], notApplicableReason: null, hoCheck: 'unchecked', hoNote: null })),
       submittedBy: null, submittedAt: null, corrections: [],
       erp: ERP_ORDER.map((type) => ({ type, status: 'pending', dataManRef: null, erpOccurredAt: null, note: null, confirmedBy: null, confirmedAt: null, source: 'manual_staff_confirmation' })),
-      reminders: [], history: [], createdBy: user.displayName, createdAt: now, updatedAt: now, version: 0,
+      reminders: [], history: [], accounting: null, createdBy: user.displayName, createdAt: now, updatedAt: now, version: 0,
     };
     logPkg(p, user.displayName, 'Package created', `Linked ${visits.map((v) => v.officialGateEntryRef).join(', ')}.`);
     db.packages.push(p);
@@ -1046,6 +1055,109 @@ export const mockAdapter: ReceivingApi = {
     if (note.length > 300) fail({ note: 'Note must be 300 characters or fewer.' });
     p.reminders.push({ id: evId(), recipient: 'Plant Head', note: note.trim(), sentBy: u.displayName, sentAt: nowIso() });
     logPkg(p, u.displayName, 'Approval reminder logged', `In-app reminder only; no message was sent.${note.trim() ? ` Note: ${note.trim()}` : ''}`);
+    db.idempotency[opts.idempotencyKey] = p.id;
+    save(db);
+    return viewOf(db, p);
+  },
+
+  /** Accounting workflow (upgrade 2026-11-03): HO → Accountant → Head Accountant → Bill Posted.
+   * Same rules as the server: capability + stage checks, mandatory reasons, audit via history. */
+  async accountingAction(id, action: AccountingAction, opts) {
+    await writeGate();
+    const db = load();
+    const prior = idem<string>(db, opts.idempotencyKey);
+    if (prior) return viewOf(db, findPkg(db, prior));
+    const p = findPkg(db, id);
+    checkVersion(p.version, opts);
+    const isHead = can(currentUser(db), 'accounting.approve');
+    const acc = p.accounting;
+    const fields: Record<string, string> = {};
+    switch (action.kind) {
+      case 'start_accounting': {
+        const u = requireCap('accounting.review', db);
+        if (p.status !== 'verified') throw rule(ACCOUNTING_VISIBLE.slice(1).includes(p.status) ? 'Accounting has already started on this package.' : 'Only a Head-Office-verified package can move to Accounts.');
+        p.status = 'with_accounting';
+        p.accounting = { stage: 'with_accountant', accountingRef: null, accountantNote: null, headAccountantNote: null,
+          startedBy: u.displayName, startedAt: nowIso(), submittedBy: null, submittedAt: null, approvedBy: null, approvedAt: null, postedBy: null, postedAt: null, corrections: [] };
+        logPkg(p, u.displayName, 'Sent to Accounts', 'Documents verified by Head Office. Accounting review started.');
+        break;
+      }
+      case 'submit_to_head_accountant': {
+        const u = requireCap('accounting.review', db);
+        if (p.status !== 'with_accounting') throw rule('Only a package with Accounts can be sent to the Head Accountant.');
+        if (!action.confirmComplete) fields.confirmComplete = 'Confirm the accounting entries are complete.';
+        if ((action.accountantNote ?? '').length > 1000) fields.accountantNote = 'Note must be 1000 characters or fewer.';
+        fail(fields);
+        p.status = 'with_head_accountant';
+        acc!.stage = 'with_head_accountant';
+        if (action.accountantNote?.trim()) acc!.accountantNote = action.accountantNote.trim();
+        acc!.submittedBy = u.displayName;
+        acc!.submittedAt = nowIso();
+        logPkg(p, u.displayName, 'Sent to Head Accountant', action.accountantNote?.trim() ? `Accountant handed over. Note: ${action.accountantNote.trim()}` : 'Accountant confirmed the accounting entries are complete.');
+        break;
+      }
+      case 'return_to_accountant': {
+        const u = requireCap('accounting.approve', db);
+        if (p.status !== 'with_head_accountant') throw rule('Only a package with the Head Accountant can be returned.');
+        checkReason(fields, 'reason', action.reason, 'returning it');
+        fail(fields);
+        p.status = 'with_accounting';
+        acc!.stage = 'with_accountant';
+        logPkg(p, u.displayName, 'Returned to Accountant', action.reason.trim());
+        break;
+      }
+      case 'approve_accounting': {
+        const u = requireCap('accounting.approve', db);
+        if (p.status !== 'with_head_accountant') throw rule('The Accountant must send the package to the Head Accountant first.');
+        if ((action.headAccountantNote ?? '').length > 1000) fields.headAccountantNote = 'Note must be 1000 characters or fewer.';
+        fail(fields);
+        p.status = 'accounting_approved';
+        acc!.stage = 'approved';
+        if (action.headAccountantNote?.trim()) acc!.headAccountantNote = action.headAccountantNote.trim();
+        acc!.approvedBy = u.displayName;
+        acc!.approvedAt = nowIso();
+        logPkg(p, u.displayName, 'Approved by Head Accountant', action.headAccountantNote?.trim() ? `Head Accountant approved. Note: ${action.headAccountantNote.trim()}` : 'Head Accountant approved the accounting.');
+        break;
+      }
+      case 'post_bill': {
+        const u = requireCap('accounting.post', db);
+        if (p.status === 'bill_posted') throw rule('This bill is already posted. Posting it twice is not allowed.');
+        if (p.status !== 'accounting_approved') throw rule('The Head Accountant must approve the package before the bill can be posted.');
+        checkText(fields, 'billRef', action.billRef, 'bill reference', true, 40);
+        if ((action.note ?? '').length > 500) fields.note = 'Note must be 500 characters or fewer.';
+        fail(fields);
+        p.status = 'bill_posted';
+        acc!.stage = 'posted';
+        acc!.accountingRef = action.billRef.trim();
+        acc!.postedBy = u.displayName;
+        acc!.postedAt = nowIso();
+        logPkg(p, u.displayName, 'Bill posted', `Bill ${action.billRef.trim()} posted. Internal accounting status — DataMan milestones are confirmed separately.`);
+        p.visitIds.forEach((vid) => logVisit(db, vid, { actor: u.displayName, action: `Bill ${action.billRef.trim()} posted (package ${p.packageRef}). Internal accounting status; not an ERP confirmation.`, source: 'app' }));
+        break;
+      }
+      case 'correct_accounting': {
+        const u = requireCap('accounting.review', db);
+        if (!acc) throw rule('Start accounting on this package first.');
+        if (p.status === 'bill_posted') throw rule('The bill is posted. No further accounting changes.');
+        if (p.status !== 'with_accounting' && !isHead) throw rule('The package is with the Head Accountant. Only the Head Accountant can change it now.');
+        if (action.field === 'headAccountantNote' && !isHead) throw rule('Only the Head Accountant can change the Head Accountant note.');
+        checkReason(fields, 'reason', action.reason, 'this correction', 500);
+        fail(fields);
+        const current = action.field === 'accountingRef' ? acc.accountingRef : action.field === 'accountantNote' ? acc.accountantNote : acc.headAccountantNote;
+        const next = action.value.trim();
+        if (action.field === 'accountingRef') checkText(fields, 'value', next, 'accounting reference', true, 40);
+        else if (next.length > 1000) fields.value = 'Value must be 1000 characters or fewer.';
+        fail(fields);
+        if (current === next) throw rule('The new value is the same as the current one. Nothing to correct.');
+        if (action.field === 'accountingRef') acc.accountingRef = next;
+        else if (action.field === 'accountantNote') acc.accountantNote = next;
+        else acc.headAccountantNote = next;
+        acc.corrections.push({ id: evId(), field: action.field, oldValue: current, newValue: next, reason: action.reason.trim(), correctedBy: u.displayName, correctedAt: nowIso() });
+        logPkg(p, u.displayName, 'Accounting correction recorded',
+          `${action.field === 'accountingRef' ? 'Accounting reference' : action.field === 'accountantNote' ? 'Accountant note' : 'Head Accountant note'}: ${current ? `“${current}”` : '—'} → “${next}”. Reason: ${action.reason.trim()}`);
+        break;
+      }
+    }
     db.idempotency[opts.idempotencyKey] = p.id;
     save(db);
     return viewOf(db, p);

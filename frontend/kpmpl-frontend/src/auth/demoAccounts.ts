@@ -10,6 +10,8 @@ export const DEMO_ACCOUNTS: readonly { username: string; displayName: string; ro
   { username: 'demo-qc', displayName: 'Demo QC User', role: 'qc' },
   { username: 'demo-docs', displayName: 'Demo Document Authority', role: 'gate_doc' },
   { username: 'demo-ho', displayName: 'Demo HO User', role: 'ho' },
+  { username: 'demo-accountant', displayName: 'Demo Accountant', role: 'accountant' },
+  { username: 'demo-head-act', displayName: 'Demo Head Accountant', role: 'head_accountant' },
   { username: 'demo-admin', displayName: 'Demo Admin', role: 'admin' },
 ];
 

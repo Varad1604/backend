@@ -54,8 +54,11 @@ describe('frontend fixtures against the generated backend contract', () => {
     expect(paths).toContain('/qc-inspections/{inspectionId}/decisions');
     expect(paths).toContain('/reports/receiving.csv');
     expect(paths).toContain('/document-files/{fileId}/content');
-    // 36 adapter calls land on 34 paths (two paths carry both a GET and a write).
-    expect(paths.length).toBe(34);
+    // Upgrade 2026-11-03: the accounting workflow queue and action endpoints.
+    expect(paths).toContain('/accounting/queue');
+    expect(paths).toContain('/document-packages/{id}/accounting');
+    // 37 adapter calls land on 36 paths (two paths carry both a GET and a write).
+    expect(paths.length).toBe(36);
   });
 
   it('validates every fixture visit as a ReceivingVisit', () => {

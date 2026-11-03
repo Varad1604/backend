@@ -20,6 +20,7 @@ import { TextAreaField } from '../../components/ui/Field';
 import { FormDialog } from '../../components/ui/Dialog';
 import { WriteError } from '../../components/ui/WriteError';
 import { Timeline } from '../../components/ui/Timeline';
+import { AccountingPanel } from '../accounting/AccountingPages';
 import { Checklist, CorrectionList, ErpPanel, LinkedVisits, PackageFacts, PackageStatusTag } from '../documents/shared';
 
 const tabs: { key: string; label: string; states: PackageStatus[] }[] = [
@@ -27,6 +28,8 @@ const tabs: { key: string; label: string; states: PackageStatus[] }[] = [
   { key: 'review', label: 'Under review', states: ['under_ho_review'] },
   { key: 'fix', label: 'Waiting on Gate', states: ['correction_requested'] },
   { key: 'done', label: 'Verified', states: ['verified'] },
+  // After verification the package moves to Accounts; HO keeps its DataMan-milestone duties.
+  { key: 'accounts', label: 'With Accounts', states: ['with_accounting', 'with_head_accountant', 'accounting_approved', 'bill_posted'] },
 ];
 
 /** Head Office inbox. */
@@ -148,7 +151,9 @@ export function HoReviewPage() {
             ? <p>Open each PDF and mark it checked. <span className="font-mono font-medium text-signal">{unchecked.length}</span> still to check before you can verify.</p>
             : <p>All attached documents are checked. Verify, or ask the Gate for a correction.</p>)}
           {p.status === 'correction_requested' && <p>Waiting for the Gate to correct and resubmit.</p>}
-          {p.status === 'verified' && <Note>Price, GST, TDS or bill number corrections are made in DataMan by authorised HO staff, not here.</Note>}
+          {p.status === 'verified' && <Note>Documents verified. The package now moves to Accounts. Price, GST, TDS or bill-number corrections stay in DataMan with authorised HO staff. Your DataMan milestones below remain active.</Note>}
+          {['with_accounting', 'with_head_accountant', 'accounting_approved', 'bill_posted'].includes(p.status)
+            && <Note>The accounting chain (Accountant → Head Accountant → Bill Posted) is tracked on its own. Confirm the DataMan milestones below as staff check DataMan.</Note>}
         </div>
       )}
       {notice && <Alert tone="success" className="mb-8">{notice}</Alert>}
@@ -162,6 +167,7 @@ export function HoReviewPage() {
           <Card title="Package"><PackageFacts p={p} /></Card>
           <Card title="Linked trucks"><LinkedVisits p={p} linkToVisit={can(user, 'receiving.view')} /></Card>
         </div>
+        <AccountingPanel p={p} onChanged={changed} interactive={false} />
         <CorrectionList p={p} />
         <ErpPanel p={p} canConfirm={can(user, 'erp.confirm')} onChanged={changed} />
         <Card title="History"><Timeline events={p.history.slice().reverse()} /></Card>

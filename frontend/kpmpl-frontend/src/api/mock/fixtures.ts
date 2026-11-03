@@ -75,6 +75,13 @@ export function buildFixtures(): MockDb {
       supplierDisplayName: 'Demo Supplier C', grossWeight: { value: '10900.000', unit: 'kg' }, tareWeight: { value: '4200.000', unit: 'kg' },
       qcStatus: 'submitted', exitStatus: 'exited', physicalExitAt: ago(35), version: 4,
     }, 260),
+    visit({
+      id: 'demo-visit-005', officialGateEntryRef: 'DEMO-GATE-0005', vehicleNumber: 'DEMO-MH-00-EE-0005',
+      supplierDisplayName: 'Demo Supplier A', challanRef: 'DEMO-CH-1005',
+      grossWeight: { value: '13600.000', unit: 'kg' }, tareWeight: { value: '5100.000', unit: 'kg' },
+      qcStatus: 'accepted', exitStatus: 'exited', physicalExitAt: ago(90),
+      grnStatus: 'reference_recorded', officialGrnRef: 'DEMO-GRN-0011', version: 6,
+    }, 300),
   ];
 
   const inspections: QcInspection[] = [
@@ -150,7 +157,7 @@ export function buildFixtures(): MockDb {
         item('supporting_bill', { state: 'not_applicable', notApplicableReason: 'Demo: no separate supporting bill for this load.' }),
         item('eway_bill', { state: 'not_applicable', notApplicableReason: 'Not needed for this load (sample).' }),
       ],
-      submittedBy: 'Demo Document Authority', submittedAt: ago(50), corrections: [], erp: pkg1Erp, reminders: [],
+      submittedBy: 'Demo Document Authority', submittedAt: ago(50), corrections: [], erp: pkg1Erp, reminders: [], accounting: null,
       history: [
         { id: 'p1', at: ago(58), actor: 'Demo Gate User', action: 'Package created', detail: 'Linked DEMO-GATE-0001.', source: 'app' },
         { id: 'p2', at: ago(55), actor: 'Demo Gate User', action: 'Marked ready for authority check', source: 'app' },
@@ -167,9 +174,30 @@ export function buildFixtures(): MockDb {
         item('supplier_invoice', { state: 'attached', files: [f('demo-file-06', 'DEMO-INV-0102.pdf', 25)] }),
         item('factory_grn'), item('weighbridge_slip'), item('qc_slip'), item('supporting_bill'), item('eway_bill'),
       ],
-      submittedBy: null, submittedAt: null, corrections: [], erp: erpPending(), reminders: [],
+      submittedBy: null, submittedAt: null, corrections: [], erp: erpPending(), reminders: [], accounting: null,
       history: [{ id: 'p6', at: ago(25), actor: 'Demo Gate User', action: 'Package created', detail: 'Linked DEMO-GATE-0004. GRN not yet recorded.', source: 'app' }],
       createdBy: 'Demo Gate User', createdAt: ago(25), updatedAt: ago(25), version: 2,
+    },
+    {
+      id: 'demo-pkg-003', packageRef: 'DEMO-PKG-0003', visitIds: ['demo-visit-005'], invoiceRef: 'DEMO-INV-0103',
+      supplierDisplayName: 'Demo Supplier A', status: 'verified', checklistVersion: 'demo-checklist-0 (not approved)',
+      items: [
+        item('supplier_invoice', { state: 'attached', files: [f('demo-file-07', 'DEMO-INV-0103.pdf', 120)], hoCheck: 'ok' }),
+        item('factory_grn', { state: 'attached', files: [f('demo-file-08', 'DEMO-GRN-0011.pdf', 119)], hoCheck: 'ok' }),
+        item('weighbridge_slip', { state: 'attached', files: [f('demo-file-09', 'DEMO-WB-0005-gross.pdf', 119), f('demo-file-10', 'DEMO-WB-0005-tare.pdf', 119)], hoCheck: 'ok' }),
+        item('qc_slip', { state: 'not_applicable', notApplicableReason: 'Demo: QC clearance recorded in the system.' }),
+        item('supporting_bill', { state: 'not_applicable', notApplicableReason: 'Demo: included in the supplier invoice.' }),
+        item('eway_bill', { state: 'not_applicable', notApplicableReason: 'Demo: not required for this load.' }),
+      ],
+      submittedBy: 'Demo Document Authority', submittedAt: ago(110), corrections: [], erp: erpPending(), reminders: [], accounting: null,
+      history: [
+        { id: 'p7', at: ago(120), actor: 'Demo Gate User', action: 'Package created', detail: 'Linked DEMO-GATE-0005.', source: 'app' },
+        { id: 'p8', at: ago(118), actor: 'Demo Gate User', action: 'Marked ready for authority check', source: 'app' },
+        { id: 'p9', at: ago(110), actor: 'Demo Document Authority', action: 'Sent to Head Office', detail: 'Authority confirmed the packet is complete.', source: 'app' },
+        { id: 'p10', at: ago(100), actor: 'Demo HO User', action: 'Head Office review started', source: 'app' },
+        { id: 'p11', at: ago(80), actor: 'Demo HO User', action: 'Documents verified by Head Office', detail: 'Next: Accounts reviews the package.', source: 'app' },
+      ],
+      createdBy: 'Demo Gate User', createdAt: ago(120), updatedAt: ago(80), version: 5,
     },
   ];
 
