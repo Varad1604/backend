@@ -681,7 +681,7 @@ components:
         receiving: { type: object, required: [total, today, onPremises], properties: { total: { type: integer }, today: { type: integer }, onPremises: { type: integer } } }
         qc: { type: object, required: [awaitingInspection, inProgress, returned, awaitingReview, decided], properties: { awaitingInspection: { type: integer }, inProgress: { type: integer }, returned: { type: integer }, awaitingReview: { type: integer }, decided: { type: integer } } }
         gate: { type: object, required: [needsTare, readyToExit, exitedToday, grnPending], properties: { needsTare: { type: integer }, readyToExit: { type: integer }, exitedToday: { type: integer }, grnPending: { type: integer } } }
-        documents: { type: object, required: [draft, withHo, correctionRequested, verified], properties: { draft: { type: integer }, withHo: { type: integer }, correctionRequested: { type: integer }, verified: { type: integer } } }
+        documents: { type: object, required: [draft, withHo, correctionRequested, verified, withAccounting, billPosted], properties: { draft: { type: integer }, withHo: { type: integer }, correctionRequested: { type: integer }, verified: { type: integer }, withAccounting: { type: integer }, billPosted: { type: integer } } }
         erp: { type: object, required: [approvalPending, voucherPending, postingPending, posted], properties: { approvalPending: { type: integer }, voucherPending: { type: integer }, postingPending: { type: integer }, posted: { type: integer } } }
         oldestAwaitingQc: { type: array, items: { $ref: '#/components/schemas/ReceivingVisit' } }
         longestOnPremises: { type: array, items: { $ref: '#/components/schemas/ReceivingVisit' } }

@@ -222,7 +222,7 @@ export interface OverviewData {
   receiving: { total: number; today: number; onPremises: number };
   qc: { awaitingInspection: number; inProgress: number; returned: number; awaitingReview: number; decided: number };
   gate: { needsTare: number; readyToExit: number; exitedToday: number; grnPending: number };
-  documents: { draft: number; withHo: number; correctionRequested: number; verified: number };
+  documents: { draft: number; withHo: number; correctionRequested: number; verified: number; withAccounting: number; billPosted: number };
   erp: { approvalPending: number; voucherPending: number; postingPending: number; posted: number };
   oldestAwaitingQc: ReceivingVisit[];
   longestOnPremises: ReceivingVisit[];

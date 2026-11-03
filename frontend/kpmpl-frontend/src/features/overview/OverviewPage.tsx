@@ -126,6 +126,9 @@ export function OverviewPage() {
                 { label: 'With Head Office', value: o.documents.withHo, to: can(user, 'ho.inbox') ? '/head-office' : undefined },
                 { label: 'Correction requested', value: o.documents.correctionRequested, warn: true },
                 { label: 'Plant Head approval pending', value: o.erp.approvalPending, warn: true, to: can(user, 'ho.inbox') ? '/erp-milestones' : undefined },
+                // Accounting chain (audit KPMPL-002): management sees in-flight and posted work.
+                { label: 'In accounting', value: o.documents.withAccounting, to: can(user, 'accounting.inbox') ? '/accounting' : undefined },
+                { label: 'Bills posted', value: o.documents.billPosted, to: can(user, 'accounting.inbox') ? '/accounting?tab=posted' : undefined },
               ]} />
             </div>
             <div className="grid gap-x-8 gap-y-10 xl:grid-cols-1">

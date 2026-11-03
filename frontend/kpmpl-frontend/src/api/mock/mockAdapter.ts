@@ -641,6 +641,9 @@ export const mockAdapter: ReceivingApi = {
         withHo: db.packages.filter((p) => ['submitted_to_ho', 'under_ho_review', 'resubmitted'].includes(p.status)).length,
         correctionRequested: db.packages.filter((p) => p.status === 'correction_requested').length,
         verified: db.packages.filter((p) => p.status === 'verified').length,
+        // Accounting chain (audit KPMPL-002) — mock parity with the server overview.
+        withAccounting: db.packages.filter((p) => ['with_accounting', 'with_head_accountant', 'accounting_approved'].includes(p.status)).length,
+        billPosted: db.packages.filter((p) => p.status === 'bill_posted').length,
       },
       erp: {
         approvalPending: erpCount('plant_head_grn_approval', 'pending'),

@@ -1,6 +1,12 @@
 import { z } from 'zod';
-const text = (max: number) => z.string().min(1).max(max).refine(value => value.trim().length > 0, 'Enter a non-empty value.').refine(value => Array.from(value).every(character => character.charCodeAt(0) >= 32 && character.charCodeAt(0) !== 127), 'Control characters are not allowed.');
-const optionalRef = z.string().max(40).refine(value => Array.from(value).every(character => character.charCodeAt(0) >= 32 && character.charCodeAt(0) !== 127), 'Control characters are not allowed.').optional();
+// Brief §3 safe charset for refs and names: letters, numbers, space and . , / & ( ) ' _ # : -
+// (the mock adapter already enforced the same set — audit KPMPL-001). Notes/reasons stay free text.
+const SAFE_REF_CHARS = /^[\p{L}\p{N} .,/&()'_#:-]*$/u;
+const text = (max: number) => z.string().min(1).max(max).refine(value => value.trim().length > 0, 'Enter a non-empty value.')
+  .refine(value => Array.from(value).every(character => character.charCodeAt(0) >= 32 && character.charCodeAt(0) !== 127), 'Control characters are not allowed.')
+  .refine(value => SAFE_REF_CHARS.test(value), 'Contains characters that are not allowed.');
+const optionalRef = z.string().max(40).refine(value => Array.from(value).every(character => character.charCodeAt(0) >= 32 && character.charCodeAt(0) !== 127), 'Control characters are not allowed.')
+  .refine(value => SAFE_REF_CHARS.test(value), 'Contains characters that are not allowed.').optional();
 // Brief §3: kg only, `^\d{1,9}(\.\d{1,3})?$`, always positive.
 export const weightValueSchema = z.object({
   value: z.string().regex(/^(?!0+(?:\.0{1,3})?$)\d{1,9}(\.\d{1,3})?$/, 'Use a positive decimal with at most 9 whole and 3 fractional digits.'),

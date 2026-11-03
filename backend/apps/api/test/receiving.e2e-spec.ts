@@ -81,6 +81,16 @@ describe.skipIf(process.env.REQUIRE_LIVE_DEPENDENCIES !== 'true')('receiving bac
     expect((await create(body({ challanRef: 'C'.repeat(41) }))).statusCode).toBe(422);
     expect((await create(body({ grossWeight: { value: '0.000', unit: 'kg' } }))).statusCode).toBe(422);
   });
+  it('rejects characters outside the brief §3 safe charset in refs and names (KPMPL-001)', async () => {
+    // The '#' and '&' etc. ARE allowed; angle brackets, quotes, braces and equals are not.
+    expect((await create(body({ officialGateEntryRef: 'DEMO<bad>' }))).statusCode).toBe(422);
+    expect((await create(body({ vehicleNumber: 'DEMO"MH"' }))).statusCode).toBe(422);
+    expect((await create(body({ supplierDisplayName: 'Demo {Supplier}' }))).statusCode).toBe(422);
+    expect((await create(body({ challanRef: 'CH=1;2' }))).statusCode).toBe(422);
+    // The allowed set keeps working: letters, digits, space, punctuation from the charset, unicode.
+    expect((await create(body({ officialGateEntryRef: "0042-HO (gate) #2" }))).statusCode).toBe(201);
+    expect((await create(body({ supplierDisplayName: 'Démo Supplier Müller & Co.' }))).statusCode).toBe(201);
+  });
   it('denies unauthorized writes and serves the register to every role per brief §5.2', async () => {
     expect((await create(body(), randomUUID(), qc)).statusCode).toBe(403);
     // receiving.view is held by all six roles: ho and admin read the register (CONTRACT_DIFF #151).

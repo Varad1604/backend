@@ -74,6 +74,10 @@ export class ReportsService {
           withHo: packages.filter(pkg => ['submitted_to_ho', 'under_ho_review', 'resubmitted'].includes(pkg.status)).length,
           correctionRequested: packages.filter(pkg => pkg.status === 'correction_requested').length,
           verified: packages.filter(pkg => pkg.status === 'verified').length,
+          // Accounting chain (audit KPMPL-002): in-flight accounting and posted bills were
+          // invisible to management. withAccounting covers every not-yet-posted accounting state.
+          withAccounting: packages.filter(pkg => ['with_accounting', 'with_head_accountant', 'accounting_approved'].includes(pkg.status)).length,
+          billPosted: packages.filter(pkg => pkg.status === 'bill_posted').length,
         },
         erp: {
           approvalPending: erpCount('plant_head_grn_approval', 'pending'),
