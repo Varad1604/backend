@@ -35,3 +35,15 @@ Run in `frontend/kpmpl-frontend/`:
   `VITE_API_BASE_URL=/api/v1`) → success; `dist/` refreshed (nginx bind-mounts it on :5173).
 - Contract snapshot `src/api/contract/openapi.yaml` → 1.2.0: new roles, new package states,
   AccountingInfo/AccountingAction schemas, /accounting/queue + /document-packages/{id}/accounting.
+
+## Deployment + live-deployment verification (2026-11-03, ~22:45 local)
+- `docker compose build migrate api` → both images rebuilt with the new code.
+- `docker compose up -d migrate` → migration `20261103190000_accounting_roles_workflow` applied
+  (additive only; no existing data touched) + idempotent demo seed: "7 users … 5 visits, 3 packages".
+- `docker compose up -d api` (NO -v anywhere) → API healthy: /healthz ok; /readyz database=up, redis=up, storage=up (direct :3000 and via nginx :5173).
+- All 7 demo accounts log in through the nginx proxy with the correct roles
+  (demo-accountant → [accountant], demo-head-act → [head_accountant], plus the five original roles).
+- `node overnight-reports/api-walk-accounting.mjs` (through nginx :5173, fresh package) →
+  **ALL 26 CHECKS PASSED**: visit→package→PDF scan→verify→RBAC denials (403s)→accounting chain
+  (with_accounting → with_head_accountant → accounting_approved → bill_posted)→corrections with
+  before/after+reason→duplicate posting 422→history wording→HO ERP retention→PDF download→timeline.
