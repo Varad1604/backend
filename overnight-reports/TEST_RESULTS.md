@@ -47,3 +47,36 @@ Run in `frontend/kpmpl-frontend/`:
   **ALL 26 CHECKS PASSED**: visit→package→PDF scan→verify→RBAC denials (403s)→accounting chain
   (with_accounting → with_head_accountant → accounting_approved → bill_posted)→corrections with
   before/after+reason→duplicate posting 422→history wording→HO ERP retention→PDF download→timeline.
+
+## Browser E2E + Playwright (2026-11-03, ~23:00–23:15 local)
+Interactive browser verification (ZCode in-app browser, headless-safe, http://localhost:5173 — the production-like nginx build):
+- Login page renders; real logins for demo-accountant, demo-head-act, demo-ho, demo-admin (password read from backend .env at runtime, never printed or stored in reports).
+- Accountant dashboard: role-specific job cards with live counts ("New from Head Office — 1 waiting").
+- Accounting Queue: 5 stage tabs with counts; package rows with status/ref/stage.
+- Full UI workflow on the user's own DEMO-PKG-0003 (their real test data, untouched by the seed):
+  Start accounting → correct accountingRef (value + reason; correction row with was/now/reason/by/when) →
+  Send to Head Accountant → (as Head Accountant) Approve with note → Post bill (billRef as typed) →
+  status "Bill posted", terminal state, note distinguishing internal posting from DataMan milestones.
+- HO: "With Accounts" inbox tab lists posted packages; package view shows the read-only accounting
+  panel and RETAINS active DataMan milestone confirm buttons (internal ≠ external verified in UI).
+- Admin: Users & Access shows all 7 accounts and the full 7-role × 18-capability matrix.
+- Responsive: 375 px viewport — tabs scroll horizontally, tables scroll, header compacts (4 screenshots captured).
+- Duplicate posting via UI: post button absent in terminal state (state machine guard verified in
+  the API walk: second post → 422 DOMAIN_RULE).
+
+Playwright suite (`npx playwright test --project=dev`, E2E_BASE_URL=http://localhost:5174, Vite dev
+server in demo mode + proxy to the live API):
+- **34 passed / 0 failed / 1 skipped** (the skipped item is conditional in the suite).
+- One genuine test bug found and fixed on the way (`e2e/lib/helpers.ts`): the decision-success
+  assertion expected "Accept with deduction" while the app renders the outcome label
+  "Accepted with deduction" (decisionOutcomeLabel). The DB confirmed the decision itself had
+  succeeded; only the assertion text was wrong.
+- A transient login rate-limit (5/min per IP+username) affected one setup run after several
+  consecutive full runs — resolved by the suite's own cooldown; noted as an operational characteristic.
+- `WEB_ORIGIN` in backend/.env extended to include http://localhost:5174 for the E2E dev server
+  (local demo config only; :5173 remains the primary origin).
+
+## Final regression (2026-11-03, ~22:53 local)
+- Backend `npx vitest run` (live deps): **60/60 passed**.
+- Frontend `npx vitest run`: **82/82 passed**.
+- Frontend `npm run build` (http mode): success; dist re-served by nginx on :5173 (verified 200).

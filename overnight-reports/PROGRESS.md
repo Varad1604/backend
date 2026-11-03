@@ -22,23 +22,23 @@ Living checklist. Updated after every milestone.
 
 ## Milestone plan
 1. [x] State verified, git checkpoint (this file, DECISIONS.md, ISSUES_FOUND.md, TEST_RESULTS.md).
-2. [ ] Backend: add roles `accountant`, `head_accountant` + capabilities
+2. [x] Backend: add roles `accountant`, `head_accountant` + capabilities
        (`accounting.inbox`, `accounting.review`, `accounting.approve`, `accounting.post`).
-3. [ ] Backend: HO → Accountant → Head Accountant → Bill Posted workflow (new package states
+3. [x] Backend: HO → Accountant → Head Accountant → Bill Posted workflow (new package states
        `with_accounting`, `with_head_accountant`, `accounting_approved`, `bill_posted`),
        authorized accounting corrections with reason, full audit trail, duplicate-posting guard.
-4. [ ] Backend: additive-only migration (new roles/capabilities rows + new tables).
-5. [ ] Backend: idempotent seed for demo accountant accounts (does not touch existing users).
-6. [ ] Backend: build + unit/integration tests green.
-7. [ ] Frontend: new roles in types/permissions, accounting UI (queue + actions + audit history),
+4. [x] Backend: additive-only migration (new roles/capabilities rows + new tables).
+5. [x] Backend: idempotent seed for demo accountant accounts (does not touch existing users).
+6. [x] Backend: build + unit/integration tests green.
+7. [x] Frontend: new roles in types/permissions, accounting UI (queue + actions + audit history),
        role-specific dashboards/simplification, button placement & accessibility fixes.
-8. [ ] Frontend: typecheck + lint + vitest + production build (http mode) green.
-9. [ ] Redeploy API container (compose build/up, NO -v) + run migration + seed; verify health.
-10. [ ] E2E browser tests via http://localhost:5173 (all roles, workflow, permissions).
-11. [ ] Final regression pass + MORNING_REPORT.md.
+8. [x] Frontend: typecheck + lint + vitest + production build (http mode) green.
+9. [x] Redeploy API container (compose build/up, NO -v) + run migration + seed; verify health.
+10. [x] E2E browser tests via http://localhost:5173 (all roles, workflow, permissions).
+11. [x] Final regression pass + MORNING_REPORT.md.
 
 ## Active errors
-- (none yet)
+- (none — all suites green, stack healthy)
 
 ## Next executable step
-- Read remaining UI shell files (App.tsx, nav, HomePage, HoPages), then implement backend changes.
+- (complete) See MORNING_REPORT.md for the final summary, evidence and morning review steps.

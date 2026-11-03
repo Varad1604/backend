@@ -147,5 +147,10 @@ export async function decideQc(page: Page, label: string, reason: string): Promi
   await page.getByLabel(label === 'Accept' ? 'Remarks' : 'Reason').fill(reason);
   await page.getByRole('button', { name: 'Next' }).click();
   await page.getByRole('button', { name: `Save decision: ${label}` }).click();
-  await expect(page.getByText(`Decision saved: ${label === 'Re-check readings' ? 'Returned for correction' : label === 'Accept' ? 'Accepted' : label}`)).toBeVisible();
+  // The success panel renders the outcome label from decisionOutcomeLabel (QcReadings.tsx).
+  const savedLabel = label === 'Re-check readings' ? 'Returned for correction'
+    : label === 'Accept' ? 'Accepted'
+    : label === 'Accept with deduction' ? 'Accepted with deduction'
+    : label;
+  await expect(page.getByText(`Decision saved: ${savedLabel}`)).toBeVisible();
 }

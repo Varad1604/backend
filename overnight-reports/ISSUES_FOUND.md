@@ -36,3 +36,26 @@ Format: `[area] issue — status (FIXED / OPEN / WONTFIX-with-reason)`
   required before the UI can exercise the new workflow (planned, no -v).
 - [clamav] PDF-wrapped EICAR is not flagged by this clamav/clamav:stable build (bare EICAR is).
   Scanner verdicts themselves work (clean/infected/timeout paths all covered).
+
+## Found and FIXED during E2E (2026-11-03 night)
+- [e2e test bug — FIXED] `e2e/lib/helpers.ts decideQc` asserted the success-panel text
+  "Decision saved: Accept with deduction" while the app renders the canonical outcome label
+  "Accepted with deduction" (`decisionOutcomeLabel`). The decision itself was recorded correctly
+  (verified in the DB: qcStatus accepted_with_deduction, 2 revisions); only the assertion was
+  wrong. Fixed the mapping; the whole 5-test serial spec and then the full 34-test suite pass.
+- [test data note] The seeded demo package DEMO-PKG-0003 collided with a package the USER had
+  already created by that name earlier in the evening — the idempotent seed correctly left the
+  user's package untouched (by design). The browser E2E therefore drove the USER'S package
+  forward through the new accounting chain (Start → correct → hand over → approve → post). The
+  full audit trail records every step; nothing was deleted or overwritten. My own fresh package
+  (from the API walk) is DEMO-PKG-0006, also posted.
+- [config — local only] WEB_ORIGIN extended with http://localhost:5174 so the Playwright dev
+  server could reach the API; :5173 (nginx) remains the primary origin. Documented; local .env only.
+- [operational] Login rate limit (5/min per IP+username) can bite when the E2E setup logs in all
+  users repeatedly within a minute — the suite needs ~1 min cooldown between back-to-back runs.
+
+## Remaining open items (not blockers, documented)
+- Overview page counters do not yet include the accounting chain states (draft/withHo/verified
+  only) — cosmetic; the accounting queue itself is the source of truth for accounting states.
+- The frontend contract yaml (1.2.0) is a hand-maintained snapshot of the backend contract;
+  backend/packages/contracts remains the generator of record (pre-existing arrangement).
