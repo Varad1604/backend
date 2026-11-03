@@ -97,7 +97,11 @@ export class AuthService {
     const outcome = await this.transaction(async tx => {
       await this.lock(tx);
       const session = await tx.session.findUnique({ where: { id }, include: { user: { include: includeRoles } } });
-      if (!session || session.revokedAt || session.expiresAt <= new Date() || !session.user.isActive || session.clientType !== context.clientType) return null;
+      const now = new Date();
+      // Same idle (2 h) and absolute (12 h lifetime) caps as the cookie path (brief §5.1).
+      if (!session || session.revokedAt || session.expiresAt <= now || !session.user.isActive || session.clientType !== context.clientType
+        || session.lastSeenAt <= new Date(now.getTime() - 2 * 3_600_000)
+        || session.expiresAt.getTime() - session.createdAt.getTime() > 12 * 3_600_000) return null;
       const presented = hash(token);
       if (!equal(presented, session.refreshTokenHash)) {
         const reused = await tx.refreshTokenHistory.findUnique({ where: { tokenHash: presented } });
@@ -108,7 +112,7 @@ export class AuthService {
         return null;
       }
       await tx.refreshTokenHistory.create({ data: { tokenHash: session.refreshTokenHash, sessionId: id, expiresAt: session.expiresAt } });
-      await tx.session.update({ where: { id }, data: { refreshTokenHash: hash(secrets.refreshToken) } });
+      await tx.session.update({ where: { id }, data: { refreshTokenHash: hash(secrets.refreshToken), lastSeenAt: now } });
       // Keep CSRF stable for the lifetime of a session so concurrent tabs can recover.
       await this.audit.append(tx, { entityType: 'Session', entityId: id, actorId: session.userId, action: 'refresh_rotated' });
       return userDto(session.user);

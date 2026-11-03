@@ -7,12 +7,15 @@ import type { Actor } from '../identity-access/identity.types';
 import type { Capability } from '../identity-access/policy';
 import { conflict, IdempotentWriteService } from '../platform/idempotent-write.service';
 import { ReceivingService } from '../receiving/receiving.service';
-import { categories, categoryLabels, milestones, milestoneShort, type PackageAction } from './document.schemas';
+import { categories, categoryLabels, milestones, milestoneShort, ACCOUNTING_STATES, ACCOUNTING_VISIBLE, type AccountingAction, type PackageAction } from './document.schemas';
 import { createHash, randomUUID } from 'node:crypto';
 import { FileStorageService } from './file-storage.service';
 import { MalwareScannerService } from './malware-scanner.service';
 
-const HO_VISIBLE = ['submitted_to_ho', 'under_ho_review', 'correction_requested', 'resubmitted', 'verified'];
+// After HO verification the package moves to Accounts (upgrade 2026-11-03). Head Office
+// keeps sight of it the whole way so its `erp.confirm` duties (manual DataMan milestones)
+// stay available — HO_VISIBLE deliberately includes the accounting chain.
+const HO_VISIBLE = ['submitted_to_ho', 'under_ho_review', 'correction_requested', 'resubmitted', 'verified', ...ACCOUNTING_VISIBLE.filter(s => s !== 'verified')];
 // R-10: gate-side edit states (ready packages go back to draft on any checklist change).
 const GATE_EDITABLE = ['draft', 'ready_for_gate_check', 'correction_requested'];
 const CHECKLIST_VERSION = 'demo-checklist-0 (not approved)';
@@ -29,6 +32,7 @@ const include = {
   corrections: { orderBy: { requestedAt: 'asc' as const } }, erp: true,
   reminders: { orderBy: { recordedAt: 'asc' as const } },
   history: { include: { actor: true }, orderBy: { recordedAt: 'asc' as const } },
+  accounting: true, accountingCorrections: { orderBy: { correctedAt: 'asc' as const } },
 };
 
 /** Mock-approved history wording for each stored action (CONTRACT_DIFF #83). */
@@ -38,6 +42,10 @@ const HISTORY_WORDS: Record<string, string> = {
   request_correction: 'Correction requested', verify: 'Documents verified by Head Office',
   document_checked: 'Document checked', applicability_changed: 'Checklist updated', file_attached: 'File attached', file_removed: 'File removed',
   reminder_logged: 'Approval reminder logged',
+  // Accounting workflow (upgrade 2026-11-03).
+  start_accounting: 'Sent to Accounts', submit_to_head_accountant: 'Sent to Head Accountant',
+  return_to_accountant: 'Returned to Accountant', approve_accounting: 'Approved by Head Accountant',
+  post_bill: 'Bill posted', accounting_corrected: 'Accounting correction recorded',
 };
 
 type PackageRow = Prisma.DocumentPackageGetPayload<{ include: typeof include }>;
@@ -60,6 +68,9 @@ export class DocumentsService {
       ...row.erp.flatMap(item => item.confirmedBy ? [item.confirmedBy] : []),
       ...row.reminders.map(item => item.recordedBy),
       ...row.corrections.flatMap(item => item.requestedBy ? [item.requestedBy] : []),
+      ...(row.accounting ? [row.accounting.startedBy, ...(row.accounting.submittedBy ? [row.accounting.submittedBy] : []),
+        ...(row.accounting.approvedBy ? [row.accounting.approvedBy] : []), ...(row.accounting.postedBy ? [row.accounting.postedBy] : []),
+        ...row.accountingCorrections.map(item => item.correctedBy)] : []),
       row.createdBy, ...(row.submittedBy ? [row.submittedBy] : []),
     ])];
     const people = await tx.user.findMany({ where: { id: { in: nameIds } }, select: { id: true, fullName: true } });
@@ -86,6 +97,16 @@ export class DocumentsService {
       reminders: row.reminders.map(item => ({ id: item.id, recipient: REMINDER_RECIPIENT, note: item.note, sentBy: nameOf(item.recordedBy)!, sentAt: item.recordedAt.toISOString() })),
       history: row.history.map(item => ({ id: item.id, at: item.recordedAt.toISOString(), actor: item.actor.fullName,
         action: HISTORY_WORDS[item.action] ?? item.action, ...(item.detail ? { detail: item.detail } : {}), source: item.source as 'app' | 'manual_staff_confirmation' })),
+      accounting: row.accounting ? {
+        stage: row.accounting.stage as 'with_accountant' | 'with_head_accountant' | 'approved' | 'posted',
+        accountingRef: row.accounting.accountingRef, accountantNote: row.accounting.accountantNote, headAccountantNote: row.accounting.headAccountantNote,
+        startedBy: nameOf(row.accounting.startedBy)!, startedAt: row.accounting.startedAt.toISOString(),
+        submittedBy: nameOf(row.accounting.submittedBy), submittedAt: row.accounting.submittedAt?.toISOString() ?? null,
+        approvedBy: nameOf(row.accounting.approvedBy), approvedAt: row.accounting.approvedAt?.toISOString() ?? null,
+        postedBy: nameOf(row.accounting.postedBy), postedAt: row.accounting.postedAt?.toISOString() ?? null,
+        corrections: row.accountingCorrections.map(item => ({ id: item.id, field: item.field, oldValue: item.oldValue, newValue: item.newValue,
+          reason: item.reason, correctedBy: nameOf(item.correctedBy)!, correctedAt: item.correctedAt.toISOString() })),
+      } : null,
       visits: visitSnapshots,
       createdBy: nameOf(row.createdBy)!, createdAt: row.createdAt.toISOString(), updatedAt: row.updatedAt.toISOString(), version: row.version,
     };
@@ -143,12 +164,17 @@ export class DocumentsService {
     });
   }
   async get(actor: Actor, id: string) {
-    const ho = actor.capabilities.includes('ho.inbox') && !actor.capabilities.includes('docs.prepare');
-    await this.auth.authorize(actor, ho ? 'ho.inbox' : 'docs.prepare');
+    // Union visibility across the roles the caller holds: Gate document preparers see every
+    // package, Head Office sees HO_VISIBLE, Accounts sees ACCOUNTING_VISIBLE. A package not
+    // visible to any held role is NOT_FOUND (existence is not leaked, brief §3).
+    const gate = actor.capabilities.includes('docs.prepare');
+    const ho = actor.capabilities.includes('ho.inbox');
+    const acct = actor.capabilities.includes('accounting.inbox');
+    if (!gate && !ho && !acct) await this.auth.authorize(actor, 'docs.prepare');
     return this.prisma.$transaction(async tx => {
       const row = await this.row(tx, id);
-      // Record-level visibility: HO sees packages only in HO_VISIBLE states, else NOT_FOUND.
-      if (ho && !HO_VISIBLE.includes(row.status)) throw new NotFoundException();
+      const visible = (gate) || (ho && HO_VISIBLE.includes(row.status)) || (acct && ACCOUNTING_VISIBLE.includes(row.status as (typeof ACCOUNTING_VISIBLE)[number]));
+      if (!visible) throw new NotFoundException();
       return { data: await this.view(tx, row) };
     });
   }
@@ -316,6 +342,109 @@ export class DocumentsService {
       return { status: 200, body: json({ data: await this.present(tx, id) }) };
     });
   }
+
+  /** Accounting queue (upgrade 2026-11-03): packages from HO verification onward. */
+  async accountingList(actor: Actor) {
+    await this.auth.authorize(actor, 'accounting.inbox');
+    return this.prisma.$transaction(async tx => {
+      const rows = await tx.documentPackage.findMany({ where: { status: { in: [...ACCOUNTING_VISIBLE] } }, include, orderBy: { updatedAt: 'desc' } });
+      const views = await Promise.all(rows.map(row => this.view(tx, row)));
+      return { data: views };
+    });
+  }
+
+  /** HO → Accountant → Head Accountant → Bill Posted. Every write: claim version, one transaction, audit + history. */
+  accounting(actor: Actor, id: string, key: string, version: number, input: AccountingAction) {
+    const capability: Capability = input.kind === 'post_bill' ? 'accounting.post'
+      : input.kind === 'return_to_accountant' || input.kind === 'approve_accounting' ? 'accounting.approve'
+      : 'accounting.review';
+    return this.writes.run(actor, capability, `/document-packages/${id}/accounting`, key, { version, ...input }, async (tx, current) => {
+      const before = await this.row(tx, id);
+      if (!ACCOUNTING_VISIBLE.includes(before.status as (typeof ACCOUNTING_VISIBLE)[number])) throw new NotFoundException();
+      await this.claim(tx, id, version);
+      const status = before.status; const record = before.accounting;
+      const isHead = actor.capabilities.includes('accounting.approve');
+      let detail: string | undefined;
+
+      if (input.kind === 'start_accounting') {
+        if (status !== 'verified') {
+          throw domain(ACCOUNTING_STATES.includes(status as (typeof ACCOUNTING_STATES)[number])
+            ? 'Accounting has already started on this package.'
+            : 'Only a Head-Office-verified package can move to Accounts.');
+        }
+        await tx.accountingRecord.create({ data: { packageId: id, stage: 'with_accountant', startedBy: current.userId } });
+        await tx.documentPackage.update({ where: { id }, data: { status: 'with_accounting' } });
+        detail = 'Documents verified by Head Office. Accounting review started.';
+      }
+
+      if (input.kind === 'submit_to_head_accountant') {
+        if (status !== 'with_accounting') throw domain('Only a package with Accounts can be sent to the Head Accountant.');
+        await tx.accountingRecord.update({ where: { packageId: id }, data: { stage: 'with_head_accountant', ...(input.accountantNote ? { accountantNote: input.accountantNote } : {}), submittedBy: current.userId, submittedAt: new Date() } });
+        await tx.documentPackage.update({ where: { id }, data: { status: 'with_head_accountant' } });
+        detail = input.accountantNote?.trim() ? `Accountant handed over. Note: ${input.accountantNote.trim()}` : 'Accountant confirmed the accounting entries are complete.';
+      }
+
+      if (input.kind === 'return_to_accountant') {
+        if (status !== 'with_head_accountant') throw domain('Only a package with the Head Accountant can be returned.');
+        await tx.accountingRecord.update({ where: { packageId: id }, data: { stage: 'with_accountant' } });
+        await tx.documentPackage.update({ where: { id }, data: { status: 'with_accounting' } });
+        detail = input.reason.trim();
+      }
+
+      if (input.kind === 'approve_accounting') {
+        if (status !== 'with_head_accountant') throw domain('The Accountant must send the package to the Head Accountant first.');
+        await tx.accountingRecord.update({ where: { packageId: id }, data: { stage: 'approved', approvedBy: current.userId, approvedAt: new Date(), ...(input.headAccountantNote ? { headAccountantNote: input.headAccountantNote } : {}) } });
+        await tx.documentPackage.update({ where: { id }, data: { status: 'accounting_approved' } });
+        detail = input.headAccountantNote?.trim() ? `Head Accountant approved. Note: ${input.headAccountantNote.trim()}` : 'Head Accountant approved the accounting.';
+      }
+
+      if (input.kind === 'post_bill') {
+        // Duplicate-posting guard: bill_posted is terminal for accounting actions.
+        if (status === 'bill_posted') throw domain('This bill is already posted. Posting it twice is not allowed.');
+        if (status !== 'accounting_approved') throw domain('The Head Accountant must approve the package before the bill can be posted.');
+        const previousRef = record?.accountingRef ?? null;
+        await tx.accountingRecord.update({ where: { packageId: id }, data: { stage: 'posted', accountingRef: input.billRef, postedBy: current.userId, postedAt: new Date() } });
+        await tx.documentPackage.update({ where: { id }, data: { status: 'bill_posted' } });
+        detail = `Bill ${input.billRef} posted. Internal accounting status — DataMan milestones are confirmed separately.`;
+        await this.history(tx, id, current.userId, 'post_bill', detail);
+        await this.audit.append(tx, { entityType: 'DocumentPackage', entityId: id, actorId: current.userId, action: 'bill_posted',
+          ...(previousRef && previousRef !== input.billRef ? { oldValue: { status, accountingRef: previousRef } } : { oldValue: { status } }),
+          newValue: { status: 'bill_posted', accountingRef: input.billRef } });
+        await this.noteVisitLinks(tx, before.packageRef, current.userId, before.visits.map(link => link.visitId), 'bill_posted', `Bill ${input.billRef} posted (package ${before.packageRef}). Internal accounting status; not an ERP confirmation.`);
+        return { status: 200, body: json({ data: await this.present(tx, id) }) };
+      }
+
+      if (input.kind === 'correct_accounting') {
+        if (!record) throw domain('Start accounting on this package first.');
+        if (status === 'bill_posted') throw domain('The bill is posted. No further accounting changes.');
+        // Stage authority: the Accountant works the package while it is with them; once it is
+        // with the Head Accountant (or approved), only the Head Accountant corrects. The Head
+        // Accountant's note is theirs alone. Financial fields (amounts, tax, ledger) are NOT
+        // editable here — pending an explicit KPMPL decision (see overnight-reports/DECISIONS.md).
+        if (status !== 'with_accounting' && !isHead) throw domain('The package is with the Head Accountant. Only the Head Accountant can change it now.');
+        if (input.field === 'headAccountantNote' && !isHead) throw domain('Only the Head Accountant can change the Head Accountant note.');
+        const currentValue = input.field === 'accountingRef' ? record.accountingRef : input.field === 'accountantNote' ? record.accountantNote : record.headAccountantNote;
+        const nextValue = input.value.trim();
+        if (currentValue === nextValue) throw domain('The new value is the same as the current one. Nothing to correct.');
+        await tx.accountingRecord.update({ where: { packageId: id }, data: { [input.field]: nextValue } });
+        await tx.accountingCorrection.create({ data: { packageId: id, field: input.field, oldValue: currentValue, newValue: nextValue, reason: input.reason, correctedBy: current.userId } });
+        await this.history(tx, id, current.userId, 'accounting_corrected',
+          `${input.field === 'accountingRef' ? 'Accounting reference' : input.field === 'accountantNote' ? 'Accountant note' : 'Head Accountant note'}: ${currentValue ? `“${currentValue}”` : '—'} → “${nextValue}”. Reason: ${input.reason}`);
+        await this.audit.append(tx, { entityType: 'DocumentPackage', entityId: id, actorId: current.userId, action: 'accounting_corrected', reason: input.reason,
+          oldValue: { field: input.field, value: currentValue }, newValue: { field: input.field, value: nextValue } });
+        return { status: 200, body: json({ data: await this.present(tx, id) }) };
+      }
+
+      await this.history(tx, id, current.userId, input.kind, detail);
+      if (input.kind === 'return_to_accountant') {
+        await this.audit.append(tx, { entityType: 'DocumentPackage', entityId: id, actorId: current.userId, action: input.kind, reason: input.reason, oldValue: { status }, newValue: { status: 'with_accounting' } });
+      } else {
+        await this.audit.append(tx, { entityType: 'DocumentPackage', entityId: id, actorId: current.userId, action: input.kind, oldValue: { status }, newValue: { status: input.kind === 'start_accounting' ? 'with_accounting' : input.kind === 'submit_to_head_accountant' ? 'with_head_accountant' : 'accounting_approved' } });
+      }
+      return { status: 200, body: json({ data: await this.present(tx, id) }) };
+    });
+  }
+
   async upload(actor: Actor, id: string, key: string, version: number, category: string, file: { filename: string; mimetype: string; buffer: Buffer }) {
     // Brief §5.9: trust the magic bytes, never the client MIME type or extension.
     if (!file.buffer.length) throw domain('Please check the highlighted fields.', { file: 'The file is empty.' });
@@ -356,7 +485,9 @@ export class DocumentsService {
   }
   async content(actor: Actor, fileId: string) {
     const file = await this.prisma.documentFile.findUnique({ where: { id: fileId }, include: { package: true } }); if (!file || file.deletedAt || file.scanStatus !== 'clean') throw new NotFoundException();
-    const gate = actor.capabilities.includes('docs.prepare'); const ho = actor.capabilities.includes('ho.inbox') && HO_VISIBLE.includes(file.package.status); if (!gate && !ho) throw new NotFoundException();
+    const gate = actor.capabilities.includes('docs.prepare'); const ho = actor.capabilities.includes('ho.inbox') && HO_VISIBLE.includes(file.package.status);
+    const acct = actor.capabilities.includes('accounting.inbox') && ACCOUNTING_VISIBLE.includes(file.package.status as (typeof ACCOUNTING_VISIBLE)[number]);
+    if (!gate && !ho && !acct) throw new NotFoundException();
     const body = await this.storage.get(file.storageKey); if (!body) throw new NotFoundException(); return { body: Buffer.from(body), filename: file.originalName };
   }
 }

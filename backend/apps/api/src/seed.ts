@@ -31,6 +31,8 @@ const ACCOUNTS = [
   { username: 'demo-qc', displayName: 'Demo QC User', role: 'qc' },
   { username: 'demo-docs', displayName: 'Demo Document Authority', role: 'gate_doc' },
   { username: 'demo-ho', displayName: 'Demo HO User', role: 'ho' },
+  { username: 'demo-accountant', displayName: 'Demo Accountant', role: 'accountant' },
+  { username: 'demo-head-act', displayName: 'Demo Head Accountant', role: 'head_accountant' },
   { username: 'demo-admin', displayName: 'Demo Admin', role: 'admin' },
 ] as const;
 
@@ -74,6 +76,9 @@ async function seedVisits(userId: string): Promise<Map<string, string>> {
     { ref: 'DEMO-GATE-0004', vehicle: 'DEMO-MH-00-DD-0004', supplier: 'Demo Supplier C', challan: null,
       gross: '10900.000', tare: '4200.000', qcStatus: 'submitted', exited: true, exitAt: ago(35), grn: null, createdMinsAgo: 260, version: 4,
       qc: { moisture: '8.50', impurity: '0.80', remarks: 'Demo observed values.', at: ago(220) } },
+    { ref: 'DEMO-GATE-0005', vehicle: 'DEMO-MH-00-EE-0005', supplier: 'Demo Supplier A', challan: 'DEMO-CH-1005',
+      gross: '13600.000', tare: '5100.000', qcStatus: 'accepted', exited: true, exitAt: ago(90), grn: 'DEMO-GRN-0011', createdMinsAgo: 300, version: 6,
+      qc: { moisture: '10.10', impurity: '1.20', remarks: 'Demo observed values; cleared for accounting sample.', at: ago(260) } },
   ];
   for (const visit of plan) {
     const existing = await prisma.receivingVisit.findFirst({ where: { officialGateEntryRef: visit.ref } });
@@ -102,6 +107,11 @@ async function seedVisits(userId: string): Promise<Map<string, string>> {
         await prisma.qCReview.create({ data: { inspectionId: inspection.id, outcome: 'returned',
           reason: 'Demo: re-check moisture on a second sample and resubmit.', demonstrationOnly: false, forRevision: 1, recordedBy: qcUser.id, recordedAt: ago(150) } });
       }
+      if (visit.qcStatus === 'accepted') {
+        // D-03: the QC operator's acceptance is a real decision record, not a demonstration.
+        await prisma.qCReview.create({ data: { inspectionId: inspection.id, outcome: 'accepted',
+          reason: 'Demo: observed values within the accepted range.', demonstrationOnly: false, forRevision: 1, recordedBy: qcUser.id, recordedAt: ago(200) } });
+      }
     }
     if (visit.exited) await prisma.vehicleExit.create({ data: { visitId: created.id, physicalExitAt: visit.exitAt!, recordedBy: userId, recordedAt: visit.exitAt! } });
     if (visit.grn) {
@@ -116,7 +126,7 @@ async function seedTimeline(ids: Map<string, string>, userId: string): Promise<v
   const qcUser = await prisma.user.findUniqueOrThrow({ where: { employeeCode: 'demo-qc' } });
   // Mirror the fixtures' visit timelines (CONTRACT_DIFF #83 wording). Seed-time appends only.
   const events: ({ visit: string; action: string; detail?: string; source?: 'app' | 'manual_staff_confirmation'; actorId: string })[] = [];
-  const v1 = ids.get('DEMO-GATE-0001')!, v2 = ids.get('DEMO-GATE-0002')!, v3 = ids.get('DEMO-GATE-0003')!, v4 = ids.get('DEMO-GATE-0004')!;
+  const v1 = ids.get('DEMO-GATE-0001')!, v2 = ids.get('DEMO-GATE-0002')!, v3 = ids.get('DEMO-GATE-0003')!, v4 = ids.get('DEMO-GATE-0004')!, v5 = ids.get('DEMO-GATE-0005')!;
   events.push(
     { visit: v1, action: 'receiving_created', detail: 'Gross 15000.000 kg recorded. Sent to QC pending list.', actorId: userId },
     { visit: v1, action: 'qc_submitted', detail: 'No automatic deduction configured.', actorId: qcUser.id },
@@ -131,6 +141,11 @@ async function seedTimeline(ids: Map<string, string>, userId: string): Promise<v
     { visit: v4, action: 'qc_submitted', actorId: qcUser.id },
     { visit: v4, action: 'weight_recorded', detail: 'Tare 4200.000 kg. Net 6700.000 kg (display only).', actorId: userId },
     { visit: v4, action: 'exit_recorded', detail: 'Staff confirmed mill exit checks. GRN not yet recorded.', actorId: userId },
+    { visit: v5, action: 'receiving_created', detail: 'Gross 13600.000 kg recorded. Sent to QC pending list.', actorId: userId },
+    { visit: v5, action: 'qc_submitted', detail: 'Demo: readings submitted and accepted by the QC operator.', actorId: qcUser.id },
+    { visit: v5, action: 'weight_recorded', detail: 'Tare 5100.000 kg. Net 8500.000 kg (display only).', actorId: userId },
+    { visit: v5, action: 'exit_recorded', detail: 'Staff confirmed mill exit checks.', actorId: userId },
+    { visit: v5, action: 'grn_reference_recorded', detail: 'DEMO-GRN-0011 — staff states it was checked in DataMan.', source: 'manual_staff_confirmation', actorId: userId },
   );
   for (const event of events) {
     const exists = await prisma.auditEvent.findFirst({ where: { entityType: 'ReceivingVisit', entityId: event.visit, action: event.action } });
@@ -168,6 +183,23 @@ async function seedPackages(ids: Map<string, string>, userId: string): Promise<v
       files: [ { category: 'supplier_invoice', ...file('DEMO-INV-0102.pdf', 25) } ],
       notApplicable: [], hoChecks: [], erpConfirmed: null,
       history: [ { action: 'package_created', detail: 'Linked DEMO-GATE-0004. GRN not yet recorded.', at: ago(25), actorId: userId } ] },
+    { ref: 'DEMO-PKG-0003', visitRef: 'DEMO-GATE-0005', invoiceRef: 'DEMO-INV-0103', supplier: 'Demo Supplier A', status: 'verified',
+      version: 5, createdAt: ago(120), submittedBy: (await prisma.user.findUniqueOrThrow({ where: { employeeCode: 'demo-docs' } })).id, submittedAt: ago(110),
+      files: [
+        { category: 'supplier_invoice', ...file('DEMO-INV-0103.pdf', 120) }, { category: 'factory_grn', ...file('DEMO-GRN-0011.pdf', 119) },
+        { category: 'weighbridge_slip', ...file('DEMO-WB-0005-gross.pdf', 119) }, { category: 'weighbridge_slip', ...file('DEMO-WB-0005-tare.pdf', 119) },
+        { category: 'qc_slip', ...file('DEMO-QC-0005.pdf', 118) },
+      ],
+      notApplicable: [ ['supporting_bill', 'Demo: included in the supplier invoice.'], ['eway_bill', 'Demo: not required for this load.'] ] as [string, string][],
+      hoChecks: [ ['supplier_invoice', 'ok'], ['factory_grn', 'ok'], ['weighbridge_slip', 'ok'], ['qc_slip', 'ok'] ] as [string, string][],
+      erpConfirmed: null,
+      history: [
+        { action: 'package_created', detail: 'Linked DEMO-GATE-0005.', at: ago(120), actorId: userId },
+        { action: 'mark_ready', detail: null, at: ago(118), actorId: userId },
+        { action: 'submit_to_ho', detail: 'Authority confirmed the packet is complete.', at: ago(110), actorId: await prisma.user.findUniqueOrThrow({ where: { employeeCode: 'demo-docs' } }).then(user => user.id) },
+        { action: 'start_review', detail: null, at: ago(100), actorId: ho.id },
+        { action: 'verify', detail: 'Documents verified by Head Office', at: ago(80), actorId: ho.id },
+      ] },
   ];
   for (const pkg of packages) {
     if (await prisma.documentPackage.findUnique({ where: { packageRef: pkg.ref } })) continue;
@@ -208,7 +240,7 @@ async function main(): Promise<void> {
   const ids = await seedVisits(users.get('demo-gate')!);
   await seedTimeline(ids, users.get('demo-gate')!);
   await seedPackages(ids, users.get('demo-gate')!);
-  console.log('Demo seed loaded: 5 users (demo-gate, demo-qc, demo-docs, demo-ho, demo-admin), 4 visits, 2 packages.');
+  console.log('Demo seed loaded: 7 users (demo-gate, demo-qc, demo-docs, demo-ho, demo-accountant, demo-head-act, demo-admin), 5 visits, 3 packages.');
 }
 
 void main().then(() => prisma.$disconnect()).catch(async error => { console.error('Demo seed failed:', error); await prisma.$disconnect(); process.exitCode = 1; });

@@ -71,6 +71,11 @@ model User {
   packageHistory PackageHistory[]
   erpMilestones ErpMilestone[]
   reminders Reminder[]
+  accountingStarted AccountingRecord[] @relation("AccountingStarter")
+  accountingSubmitted AccountingRecord[] @relation("AccountingSubmitter")
+  accountingApproved AccountingRecord[] @relation("AccountingApprover")
+  accountingPosted AccountingRecord[] @relation("AccountingPoster")
+  accountingCorrections AccountingCorrection[]
 }
 
 model UserRole {
@@ -308,8 +313,10 @@ model DocumentPackage {
   files               DocumentFile[]
   corrections         PackageCorrection[]
   erp                  ErpMilestone[]
-  reminders           Reminder[]
-  history             PackageHistory[]
+  reminders            Reminder[]
+  history              PackageHistory[]
+  accounting           AccountingRecord?
+  accountingCorrections AccountingCorrection[]
 
   @@index([status, updatedAt])
 }
@@ -381,6 +388,50 @@ model ErpMilestone {
   package         DocumentPackage @relation(fields: [packageId], references: [id], onDelete: Restrict)
   confirmer       User? @relation(fields: [confirmedBy], references: [id], onDelete: Restrict)
   @@unique([packageId, type])
+}
+
+// ---------- Accounting workflow (upgrade 2026-11-03: HO → Accountant → Head Accountant → Bill Posted) ----------
+// One record per package, created when accounting starts on a verified package.
+// `accountingRef` is an opaque string stored exactly as typed (same rules as DataMan refs);
+// whether it is the internal bill ref or a DataMan voucher ref is pending KPMPL decision.
+// No amounts, tax or ledger fields exist yet — those need an explicit KPMPL decision (D-…).
+model AccountingRecord {
+  id                  String    @id @default(uuid()) @db.Uuid
+  packageId           String    @unique @db.Uuid
+  stage               String    @default("with_accountant") // with_accountant | with_head_accountant | approved | posted
+  accountingRef       String?
+  accountantNote      String?
+  headAccountantNote  String?
+  startedBy           String    @db.Uuid
+  startedAt           DateTime  @default(now())
+  submittedBy         String?   @db.Uuid
+  submittedAt         DateTime?
+  approvedBy          String?   @db.Uuid
+  approvedAt          DateTime?
+  postedBy            String?   @db.Uuid
+  postedAt            DateTime?
+  package             DocumentPackage @relation(fields: [packageId], references: [id], onDelete: Restrict)
+  starter             User @relation("AccountingStarter", fields: [startedBy], references: [id], onDelete: Restrict)
+  submitter           User? @relation("AccountingSubmitter", fields: [submittedBy], references: [id], onDelete: Restrict)
+  approver            User? @relation("AccountingApprover", fields: [approvedBy], references: [id], onDelete: Restrict)
+  poster              User? @relation("AccountingPoster", fields: [postedBy], references: [id], onDelete: Restrict)
+}
+
+// Authorized accounting corrections: field-level before/after with a mandatory reason.
+// Append-friendly: rows are never updated or deleted; the hash-chained AuditEvent is the
+// tamper-evident copy. `field` is one of accountingRef | accountantNote | headAccountantNote.
+model AccountingCorrection {
+  id          String   @id @default(uuid()) @db.Uuid
+  packageId   String   @db.Uuid
+  field       String
+  oldValue    String?
+  newValue    String?
+  reason      String
+  correctedBy String   @db.Uuid
+  correctedAt DateTime @default(now())
+  package     DocumentPackage @relation(fields: [packageId], references: [id], onDelete: Restrict)
+  corrector   User @relation(fields: [correctedBy], references: [id], onDelete: Restrict)
+  @@index([packageId, correctedAt])
 }
 
 model ReferenceValue {
