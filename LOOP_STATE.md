@@ -6,9 +6,9 @@ Re-read at the start of every cycle. Mark items `[x] FIXED`, `[x] FIXED (already
 - [x] B-11 FIXED — additive migration 20261104210000_accounting_money_fields (4 nullable decimals), record_amounts action + view + UI inputs + mock parity; OQ-2 logged
 - [x] B-12 FIXED — corrections/amounts locked once accounting_approved; return_to_ho clears approvedBy/At
 - [p] B-13 PARKED — blocking ERP milestones after bill_posted would remove an action HO staff can perform today (late manual DataMan confirmations); stricter-option rule → OQ-8
-- [ ] B-14 no gross weight change after exit
+- [x] B-14 FIXED (already) — correct() and tare lock after exit; core-workflow spec covers it
 - [x] B-15 FIXED — qc.service submit+decide reject after exit or once the package is past HO verification
-- [ ] B-16 close audit trail gaps, every state change audited
+- [x] B-16 FIXED — accounting checks now audit; every state change appends (survey verified)
 - [x] B-17 FIXED — fail-open stores scanStatus 'unscanned' (never served, never resolves a checklist row)
 - [x] B-18 FIXED — production refuses the stock S3 secret and well-known weak app passwords; env.spec.ts covers it
 - [x] B-19 FIXED — policy.ts gate keeps overview.view (DB never removed it; keep-today's-access rule); ensureRole/seed already sync from policy.ts; OQ-3
@@ -17,7 +17,7 @@ Re-read at the start of every cycle. Mark items `[x] FIXED`, `[x] FIXED (already
 - [x] B-22 FIXED — ERP_COUNTING_STATES includes every accounting state in reports.service
 - [x] B-23 FIXED — policy.spec updated to the 8-role matrix incl. gate_doc_authority + new RBAC checks (safe default applied; OQ-4)
 - [x] B-24 FIXED — isDemo filters removed from reads; create no longer forces the flag; OQ-5
-- [ ] F-07 frontend RBAC matches the backend (gate_doc_authority overview, ho Plant Head)
+- [x] F-07 FIXED — frontend grants aligned to policy/DB
 - [x] F-08 FIXED — every card declares its capability and homeCardsFor filters through can()
 - [x] F-09 FIXED (already, post-B-28) — the button is gated by the Plant Head approval capability, which is what the route now requires
 - [x] F-11 FIXED — useWrite rotates the key on unambiguous failures; keeps it only for network/server-error ambiguity
@@ -31,7 +31,7 @@ Re-read at the start of every cycle. Mark items `[x] FIXED`, `[x] FIXED (already
 
 ## Phase 4, Low
 - [x] B-25 FIXED — P2002 → 409 DUPLICATE_CANDIDATE, P2025 → 404 in the global error filter
-- [ ] B-26 unused accounting states
+- [x] B-26 FIXED — head-accountant cases use real states; new states covered in frontend meta
 - [x] B-27 FIXED (already) — brief R-11 demotion applies to checklist/file changes only; updatePackage (visitIds/invoiceRef) intentionally does not demote
 - [x] B-28 FIXED — route now requires erp.plant_head_approval (matches the service; ho keeps access, nobody loses)
 - [x] B-29 FIXED — idempotency scope now includes a fingerprint of the new password hash
@@ -43,7 +43,7 @@ Re-read at the start of every cycle. Mark items `[x] FIXED`, `[x] FIXED (already
 - [x] B-35 FIXED — migration 20261105010000 converts all 46 timestamp columns to timestamptz; schema uses @db.Timestamptz; display already IST
 - [x] B-36 FIXED — HISTORY_WORDS covers return_to_ho/forwarded_to_head_accountant/returned_to_accountant with user-readable wording
 - [x] B-37 FIXED — percentage readings bounded to 0..100 with a clear message
-- [ ] B-38 user-management fixes
+- [x] B-38 FIXED (already) — admin safeguards verified: no self-deactivate, one-active-admin rule, password lifecycle; F-32 adds the self-admin-role block
 - [x] B-39 FIXED — refresh budget keyed per presented session (not per IP)
 - [x] F-19 FIXED — garbled Korean-glyph Note in HoPages replaced with proper EN + Marathi; new accounting labels carry EN + Marathi
 - [x] F-20 FIXED — live elapsed on-premises clock on the truck card (ticks every 30 s)
