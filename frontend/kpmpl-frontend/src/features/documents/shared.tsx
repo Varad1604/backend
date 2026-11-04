@@ -19,8 +19,11 @@ import { CheckboxField, FormDialog } from '../../components/ui/Dialog';
 import { WriteError } from '../../components/ui/WriteError';
 import { cn } from '../../components/ui/cn';
 
-export const PackageStatusTag = ({ p }: { p: { status: DocumentPackageView['status'] } }) =>
-  <Tag tone={packageStatusMeta[p.status].tone}>{packageStatusMeta[p.status].label}</Tag>;
+// F-16: unknown statuses (a newer server talking to an older tab) must never crash the tracker.
+export const PackageStatusTag = ({ p }: { p: { status: DocumentPackageView['status'] } }) => {
+  const meta = packageStatusMeta[p.status] ?? { tone: 'neutral' as const, label: p.status, owner: p.status };
+  return <Tag tone={meta.tone}>{meta.label}</Tag>;
+};
 
 export function missingCount(p: DocumentPackageView) {
   return p.items.filter((i) => i.state === 'missing').length;

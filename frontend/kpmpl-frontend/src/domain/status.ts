@@ -66,6 +66,10 @@ export const HO_VISIBLE: PackageStatus[] = [
   'with_accounting', 'with_head_accountant', 'accounting_approved', 'bill_posted',
 ];
 
+/** F-16: safe metadata for unknown statuses (older tab + newer server). */
+export const packageStatusOwner = (status: PackageStatus): string =>
+  packageStatusMeta[status]?.owner ?? String(status);
+
 /** Packages the accounting roles see, from HO verification onward. */
 export const ACCOUNTING_VISIBLE: PackageStatus[] = ['verified', 'with_accounting', 'with_head_accountant', 'accounting_approved', 'bill_posted'];
 

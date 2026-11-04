@@ -18,22 +18,22 @@ Re-read at the start of every cycle. Mark items `[x] FIXED`, `[x] FIXED (already
 - [x] B-23 FIXED — policy.spec updated to the 8-role matrix incl. gate_doc_authority + new RBAC checks (safe default applied; OQ-4)
 - [x] B-24 FIXED — isDemo filters removed from reads; create no longer forces the flag; OQ-5
 - [ ] F-07 frontend RBAC matches the backend (gate_doc_authority overview, ho Plant Head)
-- [ ] F-08 Home cards filtered by capability
-- [ ] F-09 hide Log reminder without erp.confirm
-- [ ] F-11 new Idempotency-Key when payload/version changes
-- [ ] F-12 refresh accountant checks after writes/reloads
+- [x] F-08 FIXED — every card declares its capability and homeCardsFor filters through can()
+- [x] F-09 FIXED (already, post-B-28) — the button is gated by the Plant Head approval capability, which is what the route now requires
+- [x] F-11 FIXED — useWrite rotates the key on unambiguous failures; keeps it only for network/server-error ambiguity
+- [x] F-12 FIXED — checks state re-syncs from p.accountingChecks on every write response and reload
 - [ ] F-13 enter the accounting reference normally
-- [ ] F-14 paging or a warning instead of the silent 500-row cap
-- [ ] F-15 add invoice no. later, send nothing for blank
-- [ ] F-16 tracker safe on unknown statuses
-- [ ] F-17 hide the dead Send to Head Accountant button
+- [x] F-14 FIXED — home counters come from the server-side overview (SQL-computed), no 500-row fetch
+- [x] F-15 FIXED — blank invoiceRef is omitted on package create (added later via the existing update path)
+- [x] F-16 FIXED — PackageStatusTag falls back to the raw status; owner lookups use a safe accessor
+- [x] F-17 FIXED (via F-12) — the button was dead because the check state never re-synced after reloads
 - [ ] F-18 mock and http adapters behave the same
 
 ## Phase 4, Low
 - [ ] B-25 remaining Prisma errors → 409/404
 - [ ] B-26 unused accounting states
 - [ ] B-27 editing a ready package returns it to draft
-- [ ] B-28 reminder route/service same capability
+- [x] B-28 FIXED — route now requires erp.plant_head_approval (matches the service; ho keeps access, nobody loses)
 - [ ] B-29 change-password idempotency includes the new password
 - [ ] B-30 no non-__Host- cookie fallback in production
 - [ ] B-31 trustProxy for Caddy

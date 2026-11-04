@@ -9,7 +9,7 @@ import { useAsync } from '../../hooks/useAsync';
 import { useWrite } from '../../hooks/useWrite';
 import { useAuth } from '../../auth/AuthContext';
 import { can } from '../../auth/permissions';
-import { docCategoryMeta, packageStatusMeta } from '../../domain/status';
+import { docCategoryMeta, packageStatusMeta, packageStatusOwner } from '../../domain/status';
 import type { DocumentPackageView, PackageStatus, ReceivingVisit } from '../../domain/types';
 import { relativeAge } from '../../lib/format';
 import { Card, ListCard, ListToolbar, PageHeader, TableWrap, ViewLink } from '../../components/ui/Layout';
@@ -79,7 +79,7 @@ export function PackageTable({ rows, to }: { rows: DocumentPackageView[]; to: (p
                 <td className="font-mono text-[15px]">{p.visits.map((v) => v.officialGateEntryRef).join(', ')}</td>
                 <td><PackageStatusTag p={p} /></td>
                 <td className={`num font-mono ${open && miss > 0 ? 'text-signal' : ''}`}>{open ? miss : '—'}</td>
-                <td className="text-ink-soft">{packageStatusMeta[p.status].owner}</td>
+                <td className="text-ink-soft">{packageStatusOwner(p.status)}</td>
                 <td className="nowrap text-[15px] text-muted">{relativeAge(p.updatedAt)}</td>
                 <td className="w-0 text-right"><ViewLink to={to(p)} label={`Open ${p.packageRef}`}>Open</ViewLink></td>
               </tr>
@@ -118,7 +118,8 @@ export function NewPackagePage() {
   }
   async function create() {
     if (!sel.length) { setStep(0); setErrs({ visitIds: 'Choose at least one truck.' }); return; }
-    const r = await w.run('create', (k) => api.createPackage({ visitIds: sel, invoiceRef: invoice }, { idempotencyKey: k }));
+    // F-15: optional fields are omitted, never sent blank — the invoice can be added later.
+    const r = await w.run('create', (k) => api.createPackage({ visitIds: sel, ...(invoice.trim() ? { invoiceRef: invoice.trim() } : {}) }, { idempotencyKey: k }));
     if (r.ok) setCreated(r.data);
     else if (r.error?.code === 'VALIDATION_FAILED') { setErrs(r.error.fields); setStep(r.error.fields.visitIds ? 0 : 1); }
   }
@@ -337,7 +338,7 @@ export function PackagePage() {
                 <button type="button" disabled className="cursor-not-allowed rounded-lg border border-rule bg-surface px-4 text-[16px] text-muted">
                   Check & send to Head Office
                 </button>
-                <p className="text-[13px] text-muted">{p.status === 'bill_posted' ? 'This package has been posted.' : `This package is with ${packageStatusMeta[p.status].owner}.`}</p>
+                <p className="text-[13px] text-muted">{p.status === 'bill_posted' ? 'This package has been posted.' : `This package is with ${packageStatusOwner(p.status)}.`}</p>
               </>
             )}
           </div>

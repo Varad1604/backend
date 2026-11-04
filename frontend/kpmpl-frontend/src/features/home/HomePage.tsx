@@ -6,11 +6,9 @@ import {
 import { api } from '../../api';
 import { useAsync } from '../../hooks/useAsync';
 import { useAuth } from '../../auth/AuthContext';
-import { can, roleLabel } from '../../auth/permissions';
+import { can, roleLabel, type Capability } from '../../auth/permissions';
 import type { RoleCode, User } from '../../domain/types';
-import { isToday } from '../../lib/format';
 import { cn } from '../../components/ui/cn';
-import { followUpTests } from '../followup/FollowUpListPage';
 
 type CountKey =
   | 'today' | 'needsTare' | 'readyExit' | 'grnPending' | 'qcWaiting' | 'qcDecide'
@@ -20,6 +18,8 @@ type CountKey =
 interface HomeCard {
   id: string; title: string; desc: string; to: string; icon: ComponentType<LucideProps>;
   count?: CountKey; countText?: (n: number) => string;
+  /** F-08: the card is shown only if the user holds this capability. */
+  cap?: Capability;
 }
 const waiting = (n: number) => `${n} waiting`;
 
@@ -27,10 +27,10 @@ const waiting = (n: number) => `${n} waiting`;
 const cardsByRole: Record<RoleCode, { main: HomeCard[]; more: HomeCard[] }> = {
   gate: {
     main: [
-      { id: 'new', title: 'New truck', desc: 'A truck has arrived at the gate.', to: '/receiving/new', icon: Truck, count: 'today', countText: (n) => `${n} today` },
-      { id: 'tare', title: 'Weigh empty truck', desc: 'Truck is unloaded and back on the weighbridge.', to: '/gate/follow-up?tab=needs_tare', icon: Scale, count: 'needsTare', countText: waiting },
-      { id: 'exit', title: 'Let truck out', desc: 'Weighed truck is ready to leave the mill.', to: '/gate/follow-up?tab=ready_exit', icon: DoorOpen, count: 'readyExit', countText: waiting },
-      { id: 'grn', title: 'Enter GRN No.', desc: 'Copy the GRN number from DataMan.', to: '/gate/follow-up?tab=grn_pending', icon: Receipt, count: 'grnPending', countText: waiting },
+      { id: 'new', title: 'New truck', desc: 'A truck has arrived at the gate.', to: '/receiving/new', icon: Truck, count: 'today', countText: (n) => `${n} today`, cap: 'receiving.create' },
+      { id: 'tare', title: 'Weigh empty truck', desc: 'Truck is unloaded and back on the weighbridge.', to: '/gate/follow-up?tab=needs_tare', icon: Scale, count: 'needsTare', countText: waiting, cap: 'gate.followup' },
+      { id: 'exit', title: 'Let truck out', desc: 'Weighed truck is ready to leave the mill.', to: '/gate/follow-up?tab=ready_exit', icon: DoorOpen, count: 'readyExit', countText: waiting, cap: 'gate.followup' },
+      { id: 'grn', title: 'Enter GRN No.', desc: 'Copy the GRN number from DataMan.', to: '/gate/follow-up?tab=grn_pending', icon: Receipt, count: 'grnPending', countText: waiting, cap: 'gate.followup' },
     ],
     more: [
       { id: 'reg', title: 'All trucks', desc: '', to: '/receiving', icon: ListChecks },
@@ -39,9 +39,9 @@ const cardsByRole: Record<RoleCode, { main: HomeCard[]; more: HomeCard[] }> = {
   },
   gate_doc_authority: {
     main: [
-      { id: 'dprep', title: 'Documents to prepare', desc: 'Attach the papers for each supplier invoice.', to: '/documents', icon: FileText, count: 'docsPrep', countText: waiting },
-      { id: 'dsend', title: 'Check and send to Head Office', desc: 'Packages ready for your check.', to: '/documents?tab=prep', icon: Send, count: 'docsSend', countText: waiting },
-      { id: 'dfix', title: 'Corrections asked by HO', desc: 'Head Office sent a package back.', to: '/documents?tab=fix', icon: ListChecks, count: 'docsFix', countText: waiting },
+      { id: 'dprep', title: 'Documents to prepare', desc: 'Attach the papers for each supplier invoice.', to: '/documents', icon: FileText, count: 'docsPrep', countText: waiting, cap: 'docs.prepare' },
+      { id: 'dsend', title: 'Check and send to Head Office', desc: 'Packages ready for your check.', to: '/documents?tab=prep', icon: Send, count: 'docsSend', countText: waiting, cap: 'docs.submit' },
+      { id: 'dfix', title: 'Corrections asked by HO', desc: 'Head Office sent a package back.', to: '/documents?tab=fix', icon: ListChecks, count: 'docsFix', countText: waiting, cap: 'docs.submit' },
     ],
     more: [
       { id: 'reg', title: 'All trucks', desc: '', to: '/receiving', icon: ListChecks },
@@ -50,8 +50,8 @@ const cardsByRole: Record<RoleCode, { main: HomeCard[]; more: HomeCard[] }> = {
   },
   qc: {
     main: [
-      { id: 'qcq', title: 'Trucks waiting for QC', desc: 'Take a sample and enter the readings.', to: '/qc', icon: FlaskConical, count: 'qcWaiting', countText: waiting },
-      { id: 'qcd', title: 'QC decisions to make', desc: 'Readings are in. Accept, deduct, re-check or reject.', to: '/qc?tab=submitted', icon: ClipboardCheck, count: 'qcDecide', countText: waiting },
+      { id: 'qcq', title: 'Trucks waiting for QC', desc: 'Take a sample and enter the readings.', to: '/qc', icon: FlaskConical, count: 'qcWaiting', countText: waiting, cap: 'qc.measure' },
+      { id: 'qcd', title: 'QC decisions to make', desc: 'Readings are in. Accept, deduct, re-check or reject.', to: '/qc?tab=submitted', icon: ClipboardCheck, count: 'qcDecide', countText: waiting, cap: 'qc.measure' },
     ],
     more: [
       { id: 'reg', title: 'All trucks', desc: '', to: '/receiving', icon: ListChecks },
@@ -71,16 +71,16 @@ const cardsByRole: Record<RoleCode, { main: HomeCard[]; more: HomeCard[] }> = {
   },
   ho: {
     main: [
-      { id: 'hoc', title: 'Cases to check', desc: 'Document packages sent by the gate.', to: '/head-office', icon: Inbox, count: 'hoCases', countText: waiting },
-      { id: 'erp', title: 'DataMan steps', desc: 'Plant Head approval, voucher and posting.', to: '/erp-milestones', icon: ClipboardCheck, count: 'erpPending', countText: (n) => `${n} pending` },
+      { id: 'hoc', title: 'Cases to check', desc: 'Document packages sent by the gate.', to: '/head-office', icon: Inbox, count: 'hoCases', countText: waiting, cap: 'ho.inbox' },
+      { id: 'erp', title: 'DataMan steps', desc: 'Plant Head approval, voucher and posting.', to: '/erp-milestones', icon: ClipboardCheck, count: 'erpPending', countText: (n) => `${n} pending`, cap: 'ho.inbox' },
       { id: 'rep', title: 'Reports', desc: 'Today at the mill, in numbers.', to: '/overview', icon: BarChart3 },
     ],
     more: [{ id: 'reg', title: 'All trucks', desc: '', to: '/receiving', icon: ListChecks }],
   },
   accountant: {
     main: [
-      { id: 'acct-new', title: 'New from Head Office', desc: 'Verified packages waiting for accounting.', to: '/accounting?tab=new', icon: Inbox, count: 'acctNew', countText: waiting },
-      { id: 'acct-mine', title: 'Continue accounting', desc: 'Packages you are checking now.', to: '/accounting?tab=accountant', icon: Calculator, count: 'acctMine', countText: waiting },
+      { id: 'acct-new', title: 'New from Head Office', desc: 'Verified packages waiting for accounting.', to: '/accounting?tab=new', icon: Inbox, count: 'acctNew', countText: waiting, cap: 'accounting.inbox' },
+      { id: 'acct-mine', title: 'Continue accounting', desc: 'Packages you are checking now.', to: '/accounting?tab=accountant', icon: Calculator, count: 'acctMine', countText: waiting, cap: 'accounting.inbox' },
     ],
     more: [
       { id: 'acct-posted', title: 'Posted bills', desc: '', to: '/accounting?tab=posted', icon: Receipt },
@@ -101,7 +101,7 @@ const cardsByRole: Record<RoleCode, { main: HomeCard[]; more: HomeCard[] }> = {
   },
   admin: {
     main: [
-      { id: 'users', title: 'Users', desc: 'Add people, set roles, reset passwords.', to: '/admin/users', icon: Users, count: 'activeUsers', countText: (n) => `${n} active` },
+      { id: 'users', title: 'Users', desc: 'Add people, set roles, reset passwords.', to: '/admin/users', icon: Users, count: 'activeUsers', countText: (n) => `${n} active`, cap: 'admin.users' },
       { id: 'rep', title: 'Reports', desc: 'Operations overview and CSV export.', to: '/overview', icon: BarChart3 },
       { id: 'hoc', title: 'Head Office inbox', desc: 'Document packages at Head Office.', to: '/head-office', icon: Inbox, count: 'hoCases', countText: waiting },
       { id: 'reg', title: 'All trucks', desc: 'Every truck, newest first.', to: '/receiving', icon: Truck, count: 'onPremises', countText: (n) => `${n} inside` },
@@ -110,10 +110,10 @@ const cardsByRole: Record<RoleCode, { main: HomeCard[]; more: HomeCard[] }> = {
   },
 };
 
-/** Cards for every role the user holds, de-duplicated, each still behind its capability. */
+/** Cards for every role the user holds, de-duplicated and filtered by capability (F-08). */
 export function homeCardsFor(user: User) {
   const seen = new Set<string>();
-  const pick = (list: HomeCard[]) => list.filter((c) => !seen.has(c.id) && seen.add(c.id));
+  const pick = (list: HomeCard[]) => list.filter((c) => !seen.has(c.id) && seen.add(c.id) && (!c.cap || can(user, c.cap)));
   const main = pick(user.roles.flatMap((r) => cardsByRole[r]?.main ?? []));
   const more = pick(user.roles.flatMap((r) => cardsByRole[r]?.more ?? []));
   return { main, more };
@@ -122,14 +122,15 @@ export function homeCardsFor(user: User) {
 async function loadCounts(user: User, need: Set<CountKey>): Promise<Partial<Record<CountKey, number>>> {
   const out: Partial<Record<CountKey, number>> = {};
   const jobs: Promise<void>[] = [];
-  if (['today', 'needsTare', 'readyExit', 'grnPending', 'onPremises'].some((k) => need.has(k as CountKey)) && can(user, 'receiving.view')) {
-    jobs.push(api.listVisits({ pageSize: 500 }).then((r) => {
-      const vs = r.data;
-      out.today = vs.filter((v) => isToday(v.createdAt)).length;
-      out.needsTare = vs.filter(followUpTests.needs_tare).length;
-      out.readyExit = vs.filter(followUpTests.ready_exit).length;
-      out.grnPending = vs.filter(followUpTests.grn_pending).length;
-      out.onPremises = vs.filter((v) => v.exitStatus === 'on_premises').length;
+  // F-14: these counters come from the server-side overview (computed in SQL, IST day),
+  // not from a 500-row page fetch that silently caps on a busy day.
+  if (['today', 'needsTare', 'readyExit', 'grnPending', 'onPremises'].some((k) => need.has(k as CountKey)) && can(user, 'overview.view')) {
+    jobs.push(api.getOverview().then((o) => {
+      out.today = o.receiving.today;
+      out.needsTare = o.gate.needsTare;
+      out.readyExit = o.gate.readyToExit;
+      out.grnPending = o.gate.grnPending;
+      out.onPremises = o.receiving.onPremises;
     }));
   }
   if ((need.has('qcWaiting') || need.has('qcDecide')) && can(user, 'qc.measure')) {

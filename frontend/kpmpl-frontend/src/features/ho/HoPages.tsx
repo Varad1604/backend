@@ -5,7 +5,7 @@ import { useAsync } from '../../hooks/useAsync';
 import { useWrite } from '../../hooks/useWrite';
 import { useAuth } from '../../auth/AuthContext';
 import { can } from '../../auth/permissions';
-import { DOC_CATEGORIES, ERP_ORDER, docCategoryMeta, erpMilestoneMeta, packageStatusMeta } from '../../domain/status';
+import { DOC_CATEGORIES, ERP_ORDER, docCategoryMeta, erpMilestoneMeta, packageStatusOwner } from '../../domain/status';
 import type { DocCategory, DocumentPackageView, PackageStatus } from '../../domain/types';
 import { formatDateTime, relativeAge } from '../../lib/format';
 import { GateArrivals } from '../documents/GateArrivals';
@@ -142,7 +142,7 @@ export function HoReviewPage() {
   return (
     <>
       <PageHeader mono title={p.packageRef} crumbs={[{ label: 'Head Office Inbox', to: '/head-office' }, { label: p.packageRef }]}
-        status={<StatusLine items={[<PackageStatusTag key="s" p={p} />, <span key="o" className="text-muted">Next with {packageStatusMeta[p.status].owner}</span>]} />}
+        status={<StatusLine items={[<PackageStatusTag key="s" p={p} />, <span key="o" className="text-muted">Next with {packageStatusOwner(p.status)}</span>]} />}
         description={<>{p.supplierDisplayName} · Invoice <span className="font-mono text-ink">{p.invoiceRef ?? 'not entered'}</span></>}
         actions={canVerify && ['submitted_to_ho', 'resubmitted'].includes(p.status) ? [<ButtonLink to={`/head-office/${p.id}/correct`} variant="ghost">Correction requested</ButtonLink>] : undefined} />
       {notice && <Alert tone="success" className="mb-8">{notice}</Alert>}

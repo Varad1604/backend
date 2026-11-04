@@ -29,6 +29,12 @@ export function useWrite() {
     } catch (e) {
       const err = toApiError(e);
       setError(err);
+      // F-11: the key must never be reused with a DIFFERENT payload. After an unambiguous
+      // failure (validation, conflict, permission, not-found — the server rolled back) the
+      // key rotates so a changed payload/version is safe. Only genuinely ambiguous failures
+      // (network unreachable, server error — the write may or may not have saved) keep the
+      // same key so a blind retry replays the original request.
+      if (err.code !== 'NETWORK_UNAVAILABLE' && err.code !== 'SERVER_ERROR') delete keys.current[tag];
       return { ok: false, error: err };
     } finally {
       inFlight.current = false;

@@ -1,11 +1,11 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Link, useParams, useSearchParams } from 'react-router-dom';
 import { api } from '../../api';
 import { useAsync } from '../../hooks/useAsync';
 import { useWrite } from '../../hooks/useWrite';
 import { useAuth } from '../../auth/AuthContext';
 import { can } from '../../auth/permissions';
-import { accountingStageMeta, packageStatusMeta } from '../../domain/status';
+import { accountingStageMeta, packageStatusOwner } from '../../domain/status';
 import { toUiTone } from '../../components/ui/StatusChip';
 import type { AccountingChecks, AccountingField, DocumentPackageView, PackageStatus } from '../../domain/types';
 import { formatDateTime, relativeAge } from '../../lib/format';
@@ -154,6 +154,9 @@ export function AccountingPanel({ p, onChanged, interactive }: {
     };
   };
   const [checks, setChecks] = useState<AccountingChecks>(() => syncChecks(existingChecks));
+  // F-12: re-sync the local check state whenever the package view changes (write responses
+  // and reloads) — otherwise the Send to Head Accountant button can stay dead after a reload.
+  useEffect(() => { setChecks(syncChecks(p.accountingChecks?.[0])); }, [p.accountingChecks]);
   const [recordingChecks, setRecordingChecks] = useState(false);
   const checksChanged = (next: DocumentPackageView) => { setChecks(syncChecks(next.accountingChecks?.[0])); onChanged('Accounting checks recorded.', next); };
   const getStatus = (type: 'bill_passed' | 'gst_checked' | 'tds_checked') => checks.checks.find((c) => c.type === type)?.status ?? 'pending';
@@ -426,7 +429,7 @@ export function AccountingPackagePage() {
   return (
     <>
       <PageHeader mono title={p.packageRef} crumbs={crumbs}
-        status={<StatusLine items={[<PackageStatusTag key="s" p={p} />, <span key="o" className="text-muted">Next with {packageStatusMeta[p.status].owner}</span>]} />}
+        status={<StatusLine items={[<PackageStatusTag key="s" p={p} />, <span key="o" className="text-muted">Next with {packageStatusOwner(p.status)}</span>]} />}
         description={<>{p.supplierDisplayName} · Invoice <span className="font-mono text-ink">{p.invoiceRef ?? 'not entered'}</span></>} />
       {notice && <Alert tone="success" className="mb-8">{notice}</Alert>}
 
