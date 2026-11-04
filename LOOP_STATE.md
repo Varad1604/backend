@@ -21,7 +21,7 @@ Re-read at the start of every cycle. Mark items `[x] FIXED`, `[x] FIXED (already
 - [x] F-08 FIXED — every card declares its capability and homeCardsFor filters through can()
 - [x] F-09 FIXED (already, post-B-28) — the button is gated by the Plant Head approval capability, which is what the route now requires
 - [x] F-11 FIXED — useWrite rotates the key on unambiguous failures; keeps it only for network/server-error ambiguity
-- [x] F-12 FIXED — checks state re-syncs from p.accountingChecks on every write response and reload
+- [x] F-12 FIXED — checks state re-syncs on every write response and reload; deeper root cause fixed: the checks endpoint wrote unknown Prisma args (guaranteed 500) and the view lacked accountingChecks (migration 20261104223000_accounting_check_details)
 - [ ] F-13 enter the accounting reference normally
 - [x] F-14 FIXED — home counters come from the server-side overview (SQL-computed), no 500-row fetch
 - [x] F-15 FIXED — blank invoiceRef is omitted on package create (added later via the existing update path)
