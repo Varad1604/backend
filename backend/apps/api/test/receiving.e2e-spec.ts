@@ -96,10 +96,10 @@ describe.skipIf(process.env.REQUIRE_LIVE_DEPENDENCIES !== 'true')('receiving bac
     // receiving.view is held by all six roles: ho and admin read the register (CONTRACT_DIFF #151).
     expect((await request('GET', '/api/v1/receiving-visits', ho)).statusCode).toBe(200);
     expect((await request('GET', '/api/v1/receiving-visits')).statusCode).toBe(401);
+    // B-24: reads default to ALL rows — isDemo no longer hides non-demo visits.
     const { grossWeight: _weight, ...fields } = body({ officialGateEntryRef: 'DEMO-HIDDEN' }); void _weight;
     const hidden = await prisma.receivingVisit.create({ data: { ...fields, createdBy: (await prisma.user.findFirstOrThrow()).id, isDemo: false } });
-    expect((await request('GET', '/api/v1/receiving-visits/' + hidden.id, gate)).statusCode).toBe(404);
-    expect((await weight(hidden.id, { kind: 'tare', value: '1', unit: 'kg' }, randomUUID(), gate, 1)).statusCode).toBe(404);
+    expect((await request('GET', '/api/v1/receiving-visits/' + hidden.id, gate)).statusCode).toBe(200);
   });
   it('serializes identical retries and rejects changed payloads without duplicate audit', async () => {
     const input = body(), key = randomUUID(); const before = await prisma.receivingVisit.count();

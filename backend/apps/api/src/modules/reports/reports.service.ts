@@ -14,6 +14,9 @@ const COLUMNS = ['Gate Entry No.', 'Vehicle No.', 'Supplier', 'Material', 'Gross
 const ist = new Intl.DateTimeFormat('en-IN', { timeZone: 'Asia/Kolkata', day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: true });
 const istDateTime = (iso: string | null) => (iso ? `${ist.format(new Date(iso))} IST` : '');
 const HO_VISIBLE = ['submitted_to_ho', 'under_ho_review', 'correction_requested', 'resubmitted', 'verified'];
+// B-22: packages keep their DataMan milestones while they move through accounting, so the
+// overview ERP counters must keep counting them after verification.
+const ERP_COUNTING_STATES = [...HO_VISIBLE, 'with_accounting', 'with_head_accountant', 'accounting_approved', 'forwarded_to_head_accountant', 'returned_to_ho', 'returned_to_accountant', 'bill_posted'];
 
 @Injectable()
 export class ReportsService {
@@ -26,7 +29,7 @@ export class ReportsService {
     const dayStart = new Date(Date.UTC(ist.getUTCFullYear(), ist.getUTCMonth(), ist.getUTCDate()) - 330 * 60_000); const dayEnd = new Date(dayStart.getTime() + 86_400_000);
     return this.prisma.$transaction(async tx => {
       const [visits, packages] = await Promise.all([
-        tx.receivingVisit.findMany({ where: { isDemo: true }, orderBy: [{ createdAt: 'asc' }, { id: 'asc' }] }),
+        tx.receivingVisit.findMany({ orderBy: [{ createdAt: 'asc' }, { id: 'asc' }] }),
         tx.documentPackage.findMany({ include: { erp: true } }),
       ]);
       const ids = visits.map(visit => visit.id);
@@ -43,7 +46,7 @@ export class ReportsService {
       const onPrem = rows.filter(row => row.exitStatus === 'on_premises');
       const isToday = (iso: string | null) => Boolean(iso) && iso! >= dayStart.toISOString() && iso! < dayEnd.toISOString();
       const qcHasResult = (status: string) => !['pending', 'in_progress'].includes(status);
-      const hoVisible = packages.filter(pkg => HO_VISIBLE.includes(pkg.status));
+      const hoVisible = packages.filter(pkg => ERP_COUNTING_STATES.includes(pkg.status));
       const confirmed = (pkgId: string, type: string) => packages.find(pkg => pkg.id === pkgId)?.erp.find(milestone => milestone.type === type)?.status === 'confirmed';
       const erpCount = (type: string, status: 'pending' | 'confirmed', gate?: (pkgId: string) => boolean) =>
         hoVisible.filter(pkg => (!gate || gate(pkg.id)) && pkg.erp.find(milestone => milestone.type === type)?.status === status).length;
@@ -94,7 +97,7 @@ export class ReportsService {
   async csv(actor: Actor, from?: string, to?: string) {
     await this.auth.authorize(actor, 'overview.view'); const start = from ? new Date(`${from}T00:00:00+05:30`) : undefined; const end = to ? new Date(`${to}T23:59:59.999+05:30`) : undefined;
     return this.prisma.$transaction(async tx => {
-      const visits = await tx.receivingVisit.findMany({ where: { isDemo: true, ...(start || end ? { createdAt: { ...(start ? { gte: start } : {}), ...(end ? { lte: end } : {}) } } : {}) },
+      const visits = await tx.receivingVisit.findMany({ where: { ...(start || end ? { createdAt: { ...(start ? { gte: start } : {}), ...(end ? { lte: end } : {}) } } : {}) },
         include: { weighments: { orderBy: [{ recordedAt: 'asc' }, { id: 'asc' }] }, qcInspections: { orderBy: [{ createdAt: 'desc' }, { id: 'desc' }], take: 1 } }, orderBy: { createdAt: 'desc' } });
       const [qcStates, movementStates, creators] = await Promise.all([
         this.qc.states(tx, visits.map(visit => visit.id)), this.movement.states(tx, visits.map(visit => visit.id)),

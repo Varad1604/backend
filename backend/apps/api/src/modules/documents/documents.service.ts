@@ -469,7 +469,7 @@ export class DocumentsService {
     try {
       return await this.writes.run(actor, 'docs.prepare', `/document-packages/${id}/files`, key, { version, category, sha256: createHash('sha256').update(file.buffer).digest('hex'), size: file.buffer.length, filename: file.filename }, async (tx, current) => {
         const before = await this.editable(tx, id); await this.claim(tx, id, version);
-        await tx.documentFile.create({ data: { id: fileId, packageId: id, category, storageKey, sha256: createHash('sha256').update(file.buffer).digest('hex'), size: file.buffer.length, originalName: safeFilename(file.filename), scanStatus: 'clean', uploadedBy: current.userId } });
+        await tx.documentFile.create({ data: { id: fileId, packageId: id, category, storageKey, sha256: createHash('sha256').update(file.buffer).digest('hex'), size: file.buffer.length, originalName: safeFilename(file.filename), scanStatus: verdict, uploadedBy: current.userId } });
         await tx.packageItem.update({ where: { packageId_category: { packageId: id, category } }, data: { notApplicableReason: null, hoCheck: 'unchecked', hoNote: null } });
         if (before.status === 'ready_for_gate_check') {
           await tx.documentPackage.update({ where: { id }, data: { status: 'draft' } });

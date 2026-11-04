@@ -67,10 +67,11 @@ export class ReceivingService {
     return this.writes.run(actor, 'receiving.create', '/receiving-visits', key, input, async (tx, author) => {
       // Serialize only this exact reference for a reliable advisory; it is never a unique key.
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(6200011, hashtext(${input.officialGateEntryRef}))`;
-      const duplicate = await tx.receivingVisit.findFirst({ where: { officialGateEntryRef: input.officialGateEntryRef, isDemo: true }, select: { id: true, vehicleNumber: true } });
+      const duplicate = await tx.receivingVisit.findFirst({ where: { officialGateEntryRef: input.officialGateEntryRef }, select: { id: true, vehicleNumber: true } });
       if (duplicate) throw new HttpException({ code: 'DUPLICATE_CANDIDATE', message: `A receiving visit with Gate Entry Number ${input.officialGateEntryRef} already exists (vehicle ${duplicate.vehicleNumber}).`, meta: { existingId: duplicate.id } }, 409);
       const { grossWeight, ...fields } = input;
-      const visit = await tx.receivingVisit.create({ data: { ...fields, createdBy: author.userId, isDemo: true } });
+      // B-24: isDemo is no longer forced here — the column default applies (reads are not filtered).
+      const visit = await tx.receivingVisit.create({ data: { ...fields, createdBy: author.userId } });
       const reading = await this.weights.append(tx, visit.id, author.userId, { kind: 'gross', ...grossWeight });
       const data = await this.snapshot(tx, visit);
       await this.audit.append(tx, { entityType: 'ReceivingVisit', entityId: visit.id, actorId: author.userId, action: 'receiving_created',
@@ -117,6 +118,12 @@ export class ReceivingService {
       const before = await this.repository.visible(tx, id); if (await tx.vehicleExit.findUnique({ where: { visitId: id } })) throw new HttpException({ code: 'DOMAIN_RULE', message: 'This truck has exited. Gate details are locked; a correction after exit needs an authorised process (pending KPMPL).' }, 422);
       if (input.supplierDisplayName !== undefined && input.supplierDisplayName !== before.supplierDisplayName && await tx.packageVisit.findUnique({ where: { visitId: id } })) throw new HttpException({ code: 'DOMAIN_RULE', message: 'This visit is linked to a document package. Remove it from the package before changing the supplier.' }, 422);
       const { reason, grossWeight, ...fields } = input; const changedFields = Object.entries(fields).some(([name, value]) => value !== before[name as keyof typeof before]);
+      // B-21: a correction must not move a visit onto another visit's Gate Entry No.
+      if (fields.officialGateEntryRef !== undefined && fields.officialGateEntryRef !== before.officialGateEntryRef) {
+        await tx.$executeRaw`SELECT pg_advisory_xact_lock(6200011, hashtext(${fields.officialGateEntryRef}))`;
+        const duplicate = await tx.receivingVisit.findFirst({ where: { officialGateEntryRef: fields.officialGateEntryRef, id: { not: id } }, select: { id: true, vehicleNumber: true } });
+        if (duplicate) throw new HttpException({ code: 'DUPLICATE_CANDIDATE', message: `A receiving visit with Gate Entry Number ${fields.officialGateEntryRef} already exists (vehicle ${duplicate.vehicleNumber}).`, meta: { existingId: duplicate.id } }, 409);
+      }
       const readings = await this.weights.history(tx, [id]); const current = this.weights.current(readings); const grossChanged = grossWeight !== undefined && (current.grossWeight?.value !== Number(grossWeight.value).toFixed(3) || current.grossWeight?.unit !== grossWeight.unit);
       if (!changedFields && !grossChanged) throw new HttpException({ code: 'VALIDATION_FAILED', message: 'Please check the highlighted fields.', fields: { reason: 'Change at least one field, or go back.' } }, 422);
       await this.repository.claimVersion(tx, id, version); await tx.receivingVisit.update({ where: { id }, data: fields });

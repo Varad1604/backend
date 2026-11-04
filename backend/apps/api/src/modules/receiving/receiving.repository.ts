@@ -6,13 +6,13 @@ const QC_QUEUE_STATUSES = ['in_progress', 'returned', 'submitted'];
 @Injectable()
 export class ReceivingRepository {
   async visible(tx: Prisma.TransactionClient, id: string) {
-    const visit = await tx.receivingVisit.findFirst({ where: { id, isDemo: true } });
+    const visit = await tx.receivingVisit.findFirst({ where: { id } });
     if (!visit) throw new NotFoundException();
     return visit;
   }
   async claimVersion(tx: Prisma.TransactionClient, id: string, version: number) {
     await this.visible(tx, id);
-    const changed = await tx.receivingVisit.updateMany({ where: { id, isDemo: true, version }, data: { version: { increment: 1 } } });
+    const changed = await tx.receivingVisit.updateMany({ where: { id, version }, data: { version: { increment: 1 } } });
     // Brief §3: a version mismatch carries the row's current version in meta.
     if (!changed.count) {
       const current = await tx.receivingVisit.findUnique({ where: { id }, select: { version: true } });
@@ -22,7 +22,7 @@ export class ReceivingRepository {
   }
   /** Effective QC status per visit: the newest inspection's status, or 'pending' before the first one. */
   async page(tx: Prisma.TransactionClient, query: ListVisitsInput, queue: 'qc' | null = null) {
-    let where: Prisma.ReceivingVisitWhereInput = { isDemo: true,
+    let where: Prisma.ReceivingVisitWhereInput = {
       ...(query.officialGateEntryRef !== undefined ? { officialGateEntryRef: query.officialGateEntryRef } : {}),
       ...(query.exitStatus !== undefined ? { vehicleExit: query.exitStatus === 'exited' ? { isNot: null } : null } : {}),
       ...(query.grnStatus !== undefined ? { grnLinks: query.grnStatus === 'reference_recorded' ? { some: {} } : { none: {} } } : {}),
@@ -56,7 +56,7 @@ export class ReceivingRepository {
   private async visitsWithStatus(tx: Prisma.TransactionClient, where: Prisma.ReceivingVisitWhereInput, wanted: Set<string>) {
     const includePending = wanted.has('pending');
     const inspected = wanted.size - (includePending ? 1 : 0) > 0
-      ? await tx.qCInspection.findMany({ where: { visit: { isDemo: true } }, orderBy: [{ createdAt: 'desc' }, { id: 'desc' }], select: { visitId: true, qcStatus: true } })
+      ? await tx.qCInspection.findMany({ orderBy: [{ createdAt: 'desc' }, { id: 'desc' }], select: { visitId: true, qcStatus: true } })
       : [];
     const latest = new Map<string, string>();
     for (const row of inspected) if (!latest.has(row.visitId) && wanted.has(row.qcStatus)) latest.set(row.visitId, row.qcStatus);

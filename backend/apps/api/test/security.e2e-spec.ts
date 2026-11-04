@@ -36,7 +36,8 @@ describe.skipIf(!live)('Phase 3 security hardening (isolated temporary schema)',
   // Five roles only: the login path enforces the R5 five-concurrent-session cap GLOBALLY, so this
   // spec cannot hold seven bearer sessions at once. Accounting-role positives are covered in accounting.e2e-spec.ts;
   // the matrix rows below still assert the 403 denials for these five legacy roles.
-  const roles = ['gate', 'gate_doc', 'qc', 'ho', 'admin'] as const;
+  // B-23/B-19: gate_doc_authority is a first-class role; the matrix probes it too.
+  const roles = ['gate', 'gate_doc', 'gate_doc_authority', 'qc', 'ho', 'admin'] as const;
   type Role = (typeof roles)[number];
   const tokens = {} as Record<Role, string>;
   let visitId: string;
@@ -90,6 +91,9 @@ describe.skipIf(!live)('Phase 3 security hardening (isolated temporary schema)',
     const auth = app.get(AuthService);
     for (const role of roles) await auth.bootstrapDemo(prefix + '-' + role, 'DEMO-' + role, password, [role]);
     for (const role of roles) tokens[role] = await bearerLogin(role);
+    // Six logins > the global five-session cap. Re-login the four roles the fixture needs
+    // (the matrix re-logins every role itself before its sweep).
+    await freshToken('gate'); await freshToken('gate_doc'); await freshToken('qc');
     const authz = (role: Role) => ({ authorization: 'Bearer ' + tokens[role] });
 
     // Fixture: one visit advanced to QC-submitted, a package with a clean file, a draft package.
@@ -295,8 +299,11 @@ describe.skipIf(!live)('Phase 3 security hardening (isolated temporary schema)',
       { method: 'GET', path: '/admin/users', allowed: (r) => roleCapabilities[r].includes('admin.users') },
     ];
     const failures: string[] = [];
-    for (const route of matrix) {
-      for (const role of roles) {
+    // Roles outer, fresh token per role: the login path keeps at most FIVE live sessions
+    // globally, so every role re-logins right before its own route sweep.
+    for (const role of roles) {
+      await freshToken(role);
+      for (const route of matrix) {
         const res = await app.inject({ method: route.method, url: '/api/v1' + route.path, headers: { authorization: 'Bearer ' + tokens[role], ...(route.payload ? { 'idempotency-key': randomUUID() } : {}) }, ...(route.payload ? { payload: route.payload } : {}) });
         const allowed = route.allowed(role);
         if (allowed && (res.statusCode === 401 || res.statusCode === 403)) failures.push(`${role} ${route.method} ${route.path} → ${res.statusCode} (expected allowed)`);

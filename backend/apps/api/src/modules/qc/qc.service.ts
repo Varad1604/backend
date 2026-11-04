@@ -1,6 +1,7 @@
 import { HttpException, Injectable, NotFoundException } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
+import { ACCOUNTING_STATES } from '../documents/document.schemas';
 import { PrismaService } from '../../infra/prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import type { Actor } from '../identity-access/identity.types';
@@ -42,6 +43,11 @@ export class QcService {
   submit(actor: Actor, id: string, key: string, version: number, input: z.infer<typeof qcSubmissionSchema>) {
     return this.writes.run(actor, 'qc.measure', '/receiving-visits/' + id + '/qc-inspections', key, { ...input, version }, async (tx, author) => {
       const visit = await this.receiving.claim(tx, author, id, version);
+      // B-15: readings and decisions are locked once the truck has exited or its package
+      // has passed Head Office verification (the documents are being accounted/posted).
+      if (await tx.vehicleExit.findUnique({ where: { visitId: id } })) throw domain('This truck has exited. QC readings and decisions are locked.');
+      const packageLink = await tx.packageVisit.findUnique({ where: { visitId: id }, include: { package: { select: { status: true } } } });
+      if (packageLink && ['verified', ...ACCOUNTING_STATES].includes(packageLink.package.status)) throw domain('This truck is past Head Office verification. QC can no longer be changed.');
       const existing = await tx.qCInspection.findFirst({ where: { visitId: id }, include: { revisions: { orderBy: { revisionNo: 'desc' }, take: 1 } } });
       const currentStatus = existing?.qcStatus ?? 'pending';
       // R-07: readings can be entered only while the case is pending, in progress or returned.
@@ -89,6 +95,10 @@ export class QcService {
       if (!inspection) throw new NotFoundException();
       // Every QC write checks and bumps the VISIT version (brief §3).
       await this.receiving.claim(tx, author, inspection.visitId, version);
+      // B-15: decisions are locked after exit or once the package is past HO verification.
+      if (await tx.vehicleExit.findUnique({ where: { visitId: inspection.visitId } })) throw domain('This truck has exited. QC readings and decisions are locked.');
+      const packageLink = await tx.packageVisit.findUnique({ where: { visitId: inspection.visitId }, include: { package: { select: { status: true } } } });
+      if (packageLink && ['verified', ...ACCOUNTING_STATES].includes(packageLink.package.status)) throw domain('This truck is past Head Office verification. QC can no longer be changed.');
       // R-08: a decision can be recorded only on submitted readings. D-03: the QC operator
       // who submitted them makes the decision, so there is no separation-of-duties check.
       if (inspection.qcStatus !== 'submitted') throw domain('A QC decision can be recorded only after the readings are submitted. Refresh to see its current state.');

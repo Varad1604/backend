@@ -43,9 +43,15 @@ const EnvSchema = z.object({
   if (Boolean(value.JWT_PRIVATE_KEY_BASE64) !== Boolean(value.JWT_PUBLIC_KEY_BASE64)) ctx.addIssue({ code: 'custom', message: 'Both signing keys are required', path: ['JWT_PUBLIC_KEY_BASE64'] });
   if (value.DEMO_MODE !== 'true' && value.COOKIE_SECURE !== 'true') ctx.addIssue({ code: 'custom', message: 'Live sessions require secure cookies', path: ['COOKIE_SECURE'] });
   if (value.NODE_ENV === 'production' && value.APP_MODE === 'demo') ctx.addIssue({ code: 'custom', message: 'Demo mode is forbidden in production', path: ['APP_MODE'] });
+  // B-18: never boot production with stock credentials.
+  if (value.NODE_ENV === 'production' && value.S3_SECRET_KEY === 'change-me-too') ctx.addIssue({ code: 'custom', message: 'Production requires a real S3 secret key', path: ['S3_SECRET_KEY'] });
+  if (value.NODE_ENV === 'production' && value.DEMO_PASSWORD === 'demo') ctx.addIssue({ code: 'custom', message: 'DEMO_PASSWORD "demo" is forbidden in production', path: ['DEMO_PASSWORD'] });
   // The demo seed (brief §9) needs a fixed demo password; refuse to boot without one.
   if (value.APP_MODE === 'demo' && !value.DEMO_PASSWORD) ctx.addIssue({ code: 'custom', message: 'DEMO_PASSWORD is required in demo mode', path: ['DEMO_PASSWORD'] });
 });
+
+/** Exposed for unit tests (B-18): the schema must refuse stock credentials in production. */
+export const envSchema = EnvSchema;
 
 /** Exact CORS/Origin allowlist parsed from the comma-separated WEB_ORIGIN variable. */
 export const webOrigins = (raw: string): string[] =>

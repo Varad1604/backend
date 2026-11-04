@@ -20,3 +20,4 @@ Phase 1-2 uncommitted work as the true starting state).
 - B-23: policy.spec updated to the 8-role matrix (gate_doc_authority) + new RBAC assertions — 5/5 green.
 - spec alignment: accounting + security e2e specs moved to Phase 1-2 RBAC (gate_doc prepares packages) — 9/9 + accounting green.
 - B-19: policy.ts gate regains overview.view (DB never removed it — keep-today's-access rule); OQ-3/OQ-4 logged.
+- B-15/B-17/B-21/B-22/B-24: backend batch (QC locks after exit/verify; fail-open → 'unscanned'; correction duplicate-ref 409; overview ERP counts include accounting; isDemo reads unfiltered). Backend 62/62, 0 skipped.

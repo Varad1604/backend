@@ -7,16 +7,16 @@ Re-read at the start of every cycle. Mark items `[x] FIXED`, `[x] FIXED (already
 - [ ] B-12 lock accounting fields after approval, clear stale approval on return
 - [ ] B-13 no ERP milestone confirm/reverse after bill_posted
 - [ ] B-14 no gross weight change after exit
-- [ ] B-15 no QC re-submit/re-decide after exit, HO verify or posting
+- [x] B-15 FIXED — qc.service submit+decide reject after exit or once the package is past HO verification
 - [ ] B-16 close audit trail gaps, every state change audited
-- [ ] B-17 scanner fail-open never marks files clean
+- [x] B-17 FIXED — fail-open stores scanStatus 'unscanned' (never served, never resolves a checklist row)
 - [ ] B-18 refuse default secrets in production
 - [x] B-19 FIXED — policy.ts gate keeps overview.view (DB never removed it; keep-today's-access rule); ensureRole/seed already sync from policy.ts; OQ-3
 - [ ] B-20 sync OpenAPI with routes and add the new error codes
-- [ ] B-21 unique Gate Entry No. including through corrections
-- [ ] B-22 overview ERP counts include accounting states
+- [x] B-21 FIXED — correct() checks duplicates (advisory lock + 409 DUPLICATE_CANDIDATE) when the ref changes
+- [x] B-22 FIXED — ERP_COUNTING_STATES includes every accounting state in reports.service
 - [x] B-23 FIXED — policy.spec updated to the 8-role matrix incl. gate_doc_authority + new RBAC checks (safe default applied; OQ-4)
-- [ ] B-24 remove hard-coded isDemo (safe default: keep column, stop hard-coding true, reads default to all rows; log it)
+- [x] B-24 FIXED — isDemo filters removed from reads; create no longer forces the flag; OQ-5
 - [ ] F-07 frontend RBAC matches the backend (gate_doc_authority overview, ho Plant Head)
 - [ ] F-08 Home cards filtered by capability
 - [ ] F-09 hide Log reminder without erp.confirm
