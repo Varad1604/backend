@@ -12,3 +12,4 @@
 | OQ-8 | B-13: blocking ERP milestone confirm/reverse after bill_posted would remove an action HO staff can perform today (late DataMan confirmations after internal posting — validated in the deployment walk). | PARKED per the stricter-option rule unless KPMPL confirms DataMan milestones should freeze at bill_posted. |
 | OQ-9 | B-26 "unused accounting states": `forwarded_to_head_accountant` / `returned_to_ho` / `returned_to_accountant` — are all three canonical, or are some transitional? | Kept all states; no state removed without KPMPL confirmation. |
 | OQ-10 | B-34 write throughput: writes are single-transaction by design (atomicity + audit rule). Any optimization needs a KPMPL load target first. | Parked — no behavior change. |
+| OQ-10 | B-34 write throughput: writes are single-transaction by design (atomicity + audit rule). Any optimization needs a KPMPL load target first. | Parked — no behavior change. |

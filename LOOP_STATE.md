@@ -30,21 +30,21 @@ Re-read at the start of every cycle. Mark items `[x] FIXED`, `[x] FIXED (already
 - [x] F-18 FIXED — mock return_to_ho parity added; record_amounts/checks/states already mirrored (mock inputs typed to the shared contract)
 
 ## Phase 4, Low
-- [ ] B-25 remaining Prisma errors → 409/404
+- [x] B-25 FIXED — P2002 → 409 DUPLICATE_CANDIDATE, P2025 → 404 in the global error filter
 - [ ] B-26 unused accounting states
-- [ ] B-27 editing a ready package returns it to draft
+- [x] B-27 FIXED (already) — brief R-11 demotion applies to checklist/file changes only; updatePackage (visitIds/invoiceRef) intentionally does not demote
 - [x] B-28 FIXED — route now requires erp.plant_head_approval (matches the service; ho keeps access, nobody loses)
-- [ ] B-29 change-password idempotency includes the new password
-- [ ] B-30 no non-__Host- cookie fallback in production
-- [ ] B-31 trustProxy for Caddy
-- [ ] B-32 lockout can't target a user (per-IP + per-account backoff)
-- [ ] B-33 orphaned uploads, multipart order
-- [ ] B-34 write throughput bottlenecks
-- [ ] B-35 timestamps with time zone, IST on screen
-- [ ] B-36 tracker/history wording
-- [ ] B-37 stronger QC validation
+- [x] B-29 FIXED — idempotency scope now includes a fingerprint of the new password hash
+- [x] B-30 FIXED — production refuses COOKIE_SECURE=false at the login route (the __Host- cookie demands Secure)
+- [x] B-31 FIXED — FastifyAdapter trustProxy: true so req.ip is the client behind Caddy/nginx
+- [x] B-32 FIXED — failure lockout keys on IP+account; a third party can no longer lock a victim's account from another IP
+- [x] B-33 FIXED (already) — storage put happens first, DB transaction second, orphan object deleted on DB failure (upload catch)
+- [x] B-34 PARKED (documented) — writes are single-transaction by design (atomicity rule); optimization is out of scope without a load target. See OPEN_QUESTIONS
+- [x] B-35 FIXED — migration 20261105010000 converts all 46 timestamp columns to timestamptz; schema uses @db.Timestamptz; display already IST
+- [x] B-36 FIXED — HISTORY_WORDS covers return_to_ho/forwarded_to_head_accountant/returned_to_accountant with user-readable wording
+- [x] B-37 FIXED — percentage readings bounded to 0..100 with a clear message
 - [ ] B-38 user-management fixes
-- [ ] B-39 refresh rate limit per session
+- [x] B-39 FIXED — refresh budget keyed per presented session (not per IP)
 - [ ] F-19 Marathi gaps, label fixes
 - [ ] F-20 live Running time
 - [ ] F-21 QC Returned tag time, list repeated returns
