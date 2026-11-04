@@ -8,6 +8,7 @@ import type { Capability } from '../identity-access/policy';
 import { conflict, IdempotentWriteService } from '../platform/idempotent-write.service';
 import { ReceivingService } from '../receiving/receiving.service';
 import { categories, categoryLabels, milestones, milestoneShort, ACCOUNTING_STATES, ACCOUNTING_VISIBLE, type AccountingAction, type PackageAction } from './document.schemas';
+import { accountingChecksSchema } from './document.schemas';
 import { createHash, randomUUID } from 'node:crypto';
 import { FileStorageService } from './file-storage.service';
 import { MalwareScannerService } from './malware-scanner.service';
@@ -33,6 +34,7 @@ const include = {
   reminders: { orderBy: { recordedAt: 'asc' as const } },
   history: { include: { actor: true }, orderBy: { recordedAt: 'asc' as const } },
   accounting: true, accountingCorrections: { orderBy: { correctedAt: 'asc' as const } },
+  accountingChecks: { include: { checker: true } },
 };
 
 /** Mock-approved history wording for each stored action (CONTRACT_DIFF #83). */
@@ -68,6 +70,7 @@ export class DocumentsService {
       ...row.erp.flatMap(item => item.confirmedBy ? [item.confirmedBy] : []),
       ...row.reminders.map(item => item.recordedBy),
       ...row.corrections.flatMap(item => item.requestedBy ? [item.requestedBy] : []),
+      ...row.accountingChecks.map(set => set.checkedBy),
       ...(row.accounting ? [row.accounting.startedBy, ...(row.accounting.submittedBy ? [row.accounting.submittedBy] : []),
         ...(row.accounting.approvedBy ? [row.accounting.approvedBy] : []), ...(row.accounting.postedBy ? [row.accounting.postedBy] : []),
         ...row.accountingCorrections.map(item => item.correctedBy)] : []),
@@ -110,6 +113,17 @@ export class DocumentsService {
         corrections: row.accountingCorrections.map(item => ({ id: item.id, field: item.field, oldValue: item.oldValue, newValue: item.newValue,
           reason: item.reason, correctedBy: nameOf(item.correctedBy)!, correctedAt: item.correctedAt.toISOString() })),
       } : null,
+      // The three accountant-review checks (one row per package) in the frontend's shape.
+      accountingChecks: row.accountingChecks.map(set => ({
+        id: set.id,
+        checkedBy: nameOf(set.checkedBy) ?? 'Unknown user',
+        checkedAt: set.checkedAt.toISOString(),
+        checks: [
+          { type: 'bill_passed' as const, status: (set.billCheck as { status?: string } | null)?.status ?? (set.billPassed ? 'ok' : 'pending') as 'ok' | 'pending', note: (set.billCheck as { note?: string } | null)?.note ?? null },
+          { type: 'gst_checked' as const, status: (set.gstCheck as { status?: string } | null)?.status ?? (set.gstChecked ? 'ok' : 'pending') as 'ok' | 'pending', note: (set.gstCheck as { note?: string } | null)?.note ?? null },
+          { type: 'tds_checked' as const, status: (set.tdsCheck as { status?: string } | null)?.status ?? (set.tdsChecked ? 'ok' : 'pending') as 'ok' | 'pending', note: (set.tdsCheck as { note?: string } | null)?.note ?? null },
+        ],
+      })),
       visits: visitSnapshots,
       createdBy: nameOf(row.createdBy)!, createdAt: row.createdAt.toISOString(), updatedAt: row.updatedAt.toISOString(), version: row.version,
     };
@@ -537,43 +551,51 @@ export class DocumentsService {
    * Capability: accounting.review
    * Upserts check entries so a package can be re-checked.
    */
-  async recordAccountingChecks(actor: Actor, id: string, body: any) {
+  /**
+   * B-16: the three accountant-review checks, rewritten to the real column model
+   * (billPassed/gstChecked/tdsChecked booleans + per-check JSON detail), with a capability
+   * re-check, an audit append and the history row — all in one transaction.
+   */
+  async recordAccountingChecks(actor: Actor, id: string, body: { checks: { type: 'bill_passed' | 'gst_checked' | 'tds_checked'; status: 'pending' | 'ok' | 'issue'; note?: string }[] }) {
+    if (!actor.capabilities.includes('accounting.review')) throw new HttpException({ code: 'FORBIDDEN', message: 'Permission denied.' }, 403);
     const now = new Date();
+    const columns: Record<string, { flag: 'billPassed' | 'gstChecked' | 'tdsChecked'; detail: 'billCheck' | 'gstCheck' | 'tdsCheck'; label: string }> = {
+      bill_passed: { flag: 'billPassed', detail: 'billCheck', label: 'Bill passed' },
+      gst_checked: { flag: 'gstChecked', detail: 'gstCheck', label: 'GST checked' },
+      tds_checked: { flag: 'tdsChecked', detail: 'tdsCheck', label: 'TDS checked' },
+    };
+    const data: Record<string, unknown> = { checkedBy: actor.userId, checkedAt: now };
+    for (const check of body.checks) {
+      const column = columns[check.type];
+      if (!column) throw domain(`Unknown check type: ${check.type}`);
+      data[column.flag] = check.status === 'ok';
+      data[column.detail] = { status: check.status, ...(check.note?.trim() ? { note: check.note.trim() } : {}) };
+    }
+    const changes = Object.fromEntries(Object.entries(data).filter(([key]) => key !== 'checkedBy' && key !== 'checkedAt'));
     const tx = await this.prisma.$transaction(async (tx) => {
-      for (const check of body.checks) {
-        const existing = await tx.accountingCheck.findFirst({
-          where: { packageId: id },
-        });
-        if (existing) {
-          await tx.accountingCheck.update({
-            where: { id: existing.id },
-            data: { ...check, checkedBy: actor.userId, checkedAt: now },
-          });
-        } else {
-          await tx.accountingCheck.create({
-            data: { packageId: id, ...check, checkedBy: actor.userId, checkedAt: now },
-          });
-        }
-      }
+      const before = await tx.accountingCheck.findUnique({ where: { packageId: id } });
+      if (before) await tx.accountingCheck.update({ where: { id: before.id }, data });
+      else await tx.accountingCheck.create({ data: { packageId: id, ...data, checkedBy: actor.userId } });
+      await this.audit.append(tx, { entityType: 'DocumentPackage', entityId: id, actorId: actor.userId, action: 'accounting_checks_recorded',
+        oldValue: before ? { billPassed: before.billPassed, gstChecked: before.gstChecked, tdsChecked: before.tdsChecked } : undefined,
+        newValue: { billPassed: data.billPassed === true, gstChecked: data.gstChecked === true, tdsChecked: data.tdsChecked === true } });
       await tx.packageHistory.create({
-        data: { packageId: id, actorId: actor.userId, action: 'accounting_checks_recorded', detail: 'Checks recorded via API', source: 'app' },
+        data: { packageId: id, actorId: actor.userId, action: 'accounting_checks_recorded',
+          detail: `${Object.entries(changes).map(([key, value]) => `${key === 'billPassed' ? 'Bill passed' : key === 'gstChecked' ? 'GST checked' : 'TDS checked'}: ${value === true ? 'ok' : 'pending'}`).join(', ')}`, source: 'app' },
       });
       return { status: 200, body: json({ data: await this.present(tx, id) }) };
     });
     return tx;
   }
 
+  // B-26: query the states that actually exist in the state machine.
   async headAccountantCases(actor: Actor) {
+    await this.auth.authorize(actor, 'accounting.approve');
     const cases = await this.prisma.documentPackage.findMany({
-      where: {
-        OR: [
-          { status: 'ready_for_gate_check' },
-          { status: 'ready_for_ho_check' },
-          { status: 'ready_for_accounting_check' },
-        ],
-      },
+      where: { OR: [{ status: 'with_head_accountant' }, { status: 'accounting_approved' }] },
+      orderBy: { updatedAt: 'desc' },
     });
-    return cases;
+    return { data: cases };
   }
 
 }

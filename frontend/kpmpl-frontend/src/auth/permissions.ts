@@ -30,14 +30,14 @@ export type Capability =
   | 'admin.users';
 
 const grants: Record<RoleCode, Capability[]> = {
-  gate: ['receiving.view', 'receiving.create', 'receiving.edit', 'gate.followup', 'qc.queue.view'],
+  gate: ['receiving.view', 'receiving.create', 'receiving.edit', 'gate.followup', 'qc.queue.view', 'overview.view'],
   // Document Authority has the same operational powers as Gate plus document preparation and
   // submission. It is intentionally separate from the plain Gate operator (the Gate operator
   // must not see Documents).
   gate_doc_authority: ['receiving.view', 'receiving.create', 'receiving.edit', 'gate.followup', 'qc.queue.view', 'overview.view', 'docs.prepare', 'docs.submit', 'erp.plant_head_approval'],
   gate_doc: ['receiving.view', 'overview.view', 'docs.prepare', 'docs.submit', 'erp.plant_head_approval'],
   qc: ['receiving.view', 'qc.queue.view', 'qc.measure', 'qc.decide', 'overview.view'],
-  ho: ['receiving.view', 'overview.view', 'ho.inbox', 'ho.review', 'erp.confirm', 'erp.purchase_voucher'],
+  ho: ['receiving.view', 'overview.view', 'ho.inbox', 'ho.review', 'erp.confirm', 'erp.purchase_voucher', 'erp.plant_head_approval'],
   accountant: ['receiving.view', 'overview.view', 'accounting.inbox', 'accounting.review'],
   head_accountant: ['receiving.view', 'overview.view', 'accounting.inbox', 'accounting.review', 'accounting.approve', 'accounting.post', 'erp.final_posting'],
   admin: ['receiving.view', 'overview.view', 'ho.inbox', 'admin.users'],

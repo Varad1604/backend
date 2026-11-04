@@ -291,7 +291,7 @@ describe.skipIf(!live)('Phase 3 security hardening (isolated temporary schema)',
       { method: 'GET', path: '/reports/receiving.csv', allowed: (r) => roleCapabilities[r].includes('overview.view') },
       { method: 'GET', path: '/head-office/cases', allowed: (r) => roleCapabilities[r].includes('ho.inbox') },
       { method: 'POST', path: '/head-office/reviews', allowed: (r) => roleCapabilities[r].includes('ho.review'), payload: { packageId, category: 'supplier_invoice', check: 'ok' } },
-      { method: 'POST', path: `/head-office/cases/${packageId}/reminders`, allowed: (r) => roleCapabilities[r].includes('erp.confirm'), payload: { note: 'P3 matrix reminder' } },
+      { method: 'POST', path: `/head-office/cases/${packageId}/reminders`, allowed: (r) => roleCapabilities[r].includes('erp.plant_head_approval'), payload: { note: 'P3 matrix reminder' } }, // B-28: the reminder capability
       // Upgrade 2026-11-03: the accounting workflow is reachable only by accounting roles.
       { method: 'GET', path: '/accounting/queue', allowed: (r) => roleCapabilities[r].includes('accounting.inbox') },
       { method: 'POST', path: `/document-packages/${draftPackageId}/accounting`, allowed: (r) => roleCapabilities[r].includes('accounting.review'), payload: { kind: 'start_accounting' } },
