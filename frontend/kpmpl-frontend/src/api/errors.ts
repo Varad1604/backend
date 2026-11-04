@@ -6,6 +6,7 @@ export type ApiErrorCode =
   | 'VALIDATION_FAILED'
   | 'DUPLICATE_CANDIDATE'
   | 'VERSION_CONFLICT'
+  | 'CONFLICT'
   | 'DOMAIN_RULE'
   | 'NETWORK_UNAVAILABLE'
   | 'SERVER_ERROR';
@@ -47,6 +48,8 @@ export function describeError(e: ApiError): { title: string; body: string } {
       return { title: 'Possible duplicate', body: e.message };
     case 'VERSION_CONFLICT':
       return { title: 'Updated by someone else', body: 'This record changed since you opened it. Reload to see the latest version before saving.' };
+    case 'CONFLICT':
+      return { title: 'That change conflicts with something already saved', body: e.message || 'Reload and try again.' };
     default:
       return { title: 'Not saved', body: e.message || 'An unexpected error occurred. Nothing was saved.' };
   }

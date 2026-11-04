@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { Link, useParams, useSearchParams } from 'react-router-dom';
 import { api } from '../../api';
 import { useAsync } from '../../hooks/useAsync';
@@ -153,12 +153,13 @@ export function AccountingPanel({ p, onChanged, interactive }: {
       ],
     };
   };
-  const [checks, setChecks] = useState<AccountingChecks>(() => syncChecks(existingChecks));
-  // F-12: re-sync the local check state whenever the package view changes (write responses
-  // and reloads) — otherwise the Send to Head Accountant button can stay dead after a reload.
-  useEffect(() => { setChecks(syncChecks(p.accountingChecks?.[0])); }, [p.accountingChecks]);
+  // F-12: the check state is DERIVED from the current package view (write responses and
+  // reloads re-derive it automatically — no stale closure, no effect needed).
+  const [checkOverrides, setCheckOverrides] = useState<AccountingChecks | null>(null);
+  const checks: AccountingChecks = checkOverrides ?? syncChecks(existingChecks);
+  const setChecks = (updater: (prev: AccountingChecks) => AccountingChecks) => setCheckOverrides((prev) => updater(prev ?? syncChecks(existingChecks)));
   const [recordingChecks, setRecordingChecks] = useState(false);
-  const checksChanged = (next: DocumentPackageView) => { setChecks(syncChecks(next.accountingChecks?.[0])); onChanged('Accounting checks recorded.', next); };
+  const checksChanged = (next: DocumentPackageView) => { setCheckOverrides(null); onChanged('Accounting checks recorded.', next); };
   const getStatus = (type: 'bill_passed' | 'gst_checked' | 'tds_checked') => checks.checks.find((c) => c.type === type)?.status ?? 'pending';
   const allOk = checks.checks.every((c) => c.status === 'ok');
   async function recordChecks(key: string) {

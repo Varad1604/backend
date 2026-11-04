@@ -66,7 +66,7 @@ export function HoInboxPage() {
                     <td className="nowrap font-mono text-[15px]">{p.invoiceRef ?? '—'}</td>
                     <td className="font-mono text-[15px]">{p.visits.map((v) => v.officialGrnRef ?? '—').join(', ')}</td>
                     <td><PackageStatusTag p={p} /></td>
-                    <td><Tag tone={p.erp[0]?.status === 'confirmed' ? 'success' : 'warning'}>{p.erp[0]?.status === 'confirmed' ? 'Approved' : 'Pending'}</Tag></td>
+                    <td><Tag tone={p.erp.find((m) => m.type === 'plant_head_grn_approval')?.status === 'confirmed' ? 'success' : 'warning'}>{p.erp.find((m) => m.type === 'plant_head_grn_approval')?.status === 'confirmed' ? 'Approved' : 'Pending'}</Tag></td>
                     <td className="text-ink-soft">{p.submittedBy ?? '—'}</td>
                     <td className="nowrap text-[15px] text-muted">{p.submittedAt ? relativeAge(p.submittedAt) : '—'}</td>
                     <td className="w-0 text-right"><Link to={`/head-office/${p.id}`} className="act">{tab.key === 'new' ? 'Review' : 'Open'}</Link></td>
@@ -192,7 +192,7 @@ export function HoReviewPage() {
               {errs.categories && <p role="alert" className="mt-1 text-[15px] text-problem">{errs.categories}</p>}
             </fieldset>
             <TextAreaField label="What is wrong or missing" required rows={3} maxLength={1000} value={reason} onChange={(e) => setReason(e.target.value)} error={errs.reason} />
-            <Note>स제작을 게이트로 돌려보내는 것이 적제작된 적재를 거부하지는 않습니다. HO 반환 및 보류 절차는 KPMPL 확인이 pending입니다.</Note>
+            <Note>Sending a document back does not reject the load. The HO return and hold process is pending KPMPL confirmation. <span lang="mr">कागज परत केल्याने वजन नाकारले जात नाही; परत करण्याची प्रक्रिया KPMPL पुष्टीकरणाची आहे.</span></Note>
           </>
         )}
       </FormDialog>

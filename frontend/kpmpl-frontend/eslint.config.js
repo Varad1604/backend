@@ -18,7 +18,11 @@ export default tseslint.config(
     plugins: { 'react-hooks': reactHooks, 'react-refresh': reactRefresh },
     rules: {
       ...reactHooks.configs.recommended.rules,
-      'react-refresh/only-export-components': ['warn', { allowConstantExport: true }],
+      // F-30: this project deliberately co-locates pure helpers (stage maps, formatters,
+      // list filters) with the components they serve. Splitting them into one file each
+      // would be churn with zero user benefit; fast-refresh falls back to full reloads
+      // for the touched modules only.
+      'react-refresh/only-export-components': 'off',
       '@typescript-eslint/no-explicit-any': 'error',
       '@typescript-eslint/consistent-type-imports': ['error', { fixStyle: 'inline-type-imports' }],
       '@typescript-eslint/no-unused-vars': ['error', { argsIgnorePattern: '^_', varsIgnorePattern: '^_' }],

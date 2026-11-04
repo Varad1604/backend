@@ -45,20 +45,20 @@ Re-read at the start of every cycle. Mark items `[x] FIXED`, `[x] FIXED (already
 - [x] B-37 FIXED — percentage readings bounded to 0..100 with a clear message
 - [ ] B-38 user-management fixes
 - [x] B-39 FIXED — refresh budget keyed per presented session (not per IP)
-- [ ] F-19 Marathi gaps, label fixes
-- [ ] F-20 live Running time
-- [ ] F-21 QC Returned tag time, list repeated returns
-- [ ] F-22 truck and package tracker agree
-- [ ] F-23 valid HTML in returned reasons
-- [ ] F-24 BackButton fallbacks for gate and admin
-- [ ] F-25 Plant Head column by milestone key
-- [ ] F-26 unknown 409 codes get their own message
-- [ ] F-27 accounting errors shown once
-- [ ] F-28 Check and send card opens its own list
-- [ ] F-29 remove dead code
+- [x] F-19 FIXED — garbled Korean-glyph Note in HoPages replaced with proper EN + Marathi; new accounting labels carry EN + Marathi
+- [x] F-20 FIXED — live elapsed on-premises clock on the truck card (ticks every 30 s)
+- [x] F-21 FIXED — each 'Returned for correction' decision shows the date/time; repeated returns already render as separate history cards
+- [x] F-22 FIXED (already) — both trackers read the same independent status fields; unknown-status fallback added under F-16 keeps them consistent
+- [x] F-23 FIXED (already) — React escapes returned reasons; no dangerouslySetInnerHTML anywhere in features/components
+- [x] F-24 FIXED — UsersPage and Gate dashboard gained Home breadcrumb fallbacks
+- [x] F-25 FIXED — the HO inbox Plant Head tag looks up by milestone key, not array index
+- [x] F-26 FIXED — CONFLICT added to ApiErrorCode + a dedicated message; the error filter emits it for generic 409s
+- [x] F-27 FIXED (already) — WriteError renders once per form (validation variant inline, others above the card)
+- [x] F-28 FIXED — new 'Ready to send' tab on Documents; the Home card targets it directly
+- [x] F-29 FIXED — headAccountantCases non-existent states removed (B-26); eslint reports no unused vars
 - [x] F-30 PARTIAL — 24 lint ERRORS fixed (typed mock checks); 13 style warnings remain (react-refresh)
-- [ ] F-31 workflow and RBAC tests per role
-- [ ] F-32 admin can't remove their own admin role
+- [x] F-31 FIXED (already) — journey-v085 walks all six operational roles live; policy.spec asserts the per-role capability matrix; security e2e matrix covers endpoint × role
+- [x] F-32 FIXED — the edit dialog blocks removing your own admin role with an explanatory message
 
 ## Phase gates
 - [x] All Medium done → full check → bump frontend 0.8.4 → commit "release 0.8.4"

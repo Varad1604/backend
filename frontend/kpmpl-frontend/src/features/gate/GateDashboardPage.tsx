@@ -73,7 +73,7 @@ export function GateDashboardPage() {
 
   return (
     <>
-      <PageHeader
+      <PageHeader crumbs={[{ label: 'Home', to: '/home' }]}
         title="Gate"
         description={dayName.format(new Date())}
         actions={<>

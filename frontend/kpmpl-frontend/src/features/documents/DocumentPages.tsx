@@ -26,6 +26,8 @@ import { ChecklistNotice, Checklist, CorrectionList, ErpPanel, LinkedVisits, Pac
 
 const tabs: { key: string; label: string; states: PackageStatus[] }[] = [
   { key: 'prep', label: 'In preparation', states: ['draft', 'ready_for_gate_check'] },
+  // F-28: the Home "Check and send" card opens this tab directly — its own list.
+  { key: 'send', label: 'Ready to send', states: ['ready_for_gate_check'] },
   { key: 'fix', label: 'Correction requested', states: ['correction_requested'] },
   { key: 'ho', label: 'With Head Office', states: ['submitted_to_ho', 'under_ho_review', 'resubmitted'] },
   { key: 'done', label: 'Verified', states: ['verified'] },

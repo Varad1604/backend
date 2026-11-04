@@ -1,5 +1,5 @@
 import type { QcInspection, QcReviewNote, QcRevision } from '../../domain/types';
-import { formatDateTime } from '../../lib/format';
+import { formatDate, formatDateTime, formatTime } from '../../lib/format';
 import { Tag } from '../../components/ui/StatusTag';
 
 export const measurementLabel: Record<string, string> = { moisture: 'Moisture (%)', impurity: 'Impurity (%)' };
@@ -68,6 +68,9 @@ export function DecisionNoteCard({ note }: { note: QcReviewNote }) {
         <p className="font-semibold text-ink">QC decision on revision <span className="font-mono">{note.forRevision}</span></p>
         <Tag tone={bad ? 'danger' : 'success'}>{decisionOutcomeLabel[note.outcome]}</Tag>
       </div>
+      {note.outcome === 'returned' && (
+        <p className="mt-1 text-[15px] text-muted">Returned for re-check on {formatDate(note.recordedAt)} at {formatTime(note.recordedAt)} IST. <span lang="mr">पुन्हा तपासणीसाठी परत केले.</span></p>
+      )}
       <div className="mt-1.5">
         <p>{note.reason}</p>
         {note.outcome === 'accepted_with_deduction' && <p className="mt-1 text-muted">Deduction amount not calculated. Formula pending KPMPL confirmation.</p>}

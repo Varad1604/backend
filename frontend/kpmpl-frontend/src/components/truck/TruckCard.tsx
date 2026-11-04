@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import { Clock } from 'lucide-react';
 import type { ReceivingVisit, User } from '../../domain/types';
@@ -57,6 +57,20 @@ export function truckTone(v: ReceivingVisit, actors: Actor[]): UiTone {
 
 const when = (iso: string) => (isToday(iso) ? formatTime(iso) : `${formatDate(iso)} · ${formatTime(iso)}`);
 
+/** F-20: live elapsed time since arrival, ticking every 30 s while the truck is on premises. */
+export function useElapsedSince(iso: string | null, onPremises: boolean): string {
+  const [, tick] = useState(0);
+  useEffect(() => {
+    if (!iso || !onPremises) return;
+    const id = setInterval(() => tick((n) => n + 1), 30_000);
+    return () => clearInterval(id);
+  }, [iso, onPremises]);
+  if (!iso || !onPremises) return '';
+  const mins = Math.max(0, Math.round((Date.now() - new Date(iso).getTime()) / 60000));
+  const h = Math.floor(mins / 60);
+  return mins < 60 ? `${mins} min` : `${h} h ${mins % 60} min`;
+}
+
 /**
  * One truck. Card on phones/tablets; on wide screens the same element lays out as a row
  * (card/table hybrid). Left accent + chip use the shared tone mapping.
@@ -84,7 +98,7 @@ export function TruckCard({ v, to, actors, chip, action, extra }: {
         <p className="flex flex-wrap items-center gap-x-3 text-[15px] text-muted">
           <span>{v.materialDisplayName}</span>
           {v.grossWeight && <span className="font-mono">{formatDecimal(v.grossWeight.value)} kg</span>}
-          <span className="inline-flex items-center gap-1"><Clock aria-hidden size={15} strokeWidth={1.75} />{when(v.createdAt)}</span>
+          <span className="inline-flex items-center gap-1"><Clock aria-hidden size={15} strokeWidth={1.75} />{when(v.createdAt)}{v.exitStatus === 'on_premises' && <ElapsedBadge arrivedAt={v.createdAt} />}</span>
         </p>
         {extra}
       </div>
@@ -96,6 +110,12 @@ export function TruckCard({ v, to, actors, chip, action, extra }: {
   );
   if (!to) return body;
   return <Link to={to} className="group block rounded-xl focus-visible:outline-3 focus-visible:outline-offset-2" aria-label={`${v.officialGateEntryRef} ${v.vehicleNumber}`}>{body}</Link>;
+}
+
+function ElapsedBadge({ arrivedAt }: { arrivedAt: string }) {
+  const elapsed = useElapsedSince(arrivedAt, true);
+  if (!elapsed) return null;
+  return <span className="font-medium text-ink-soft">· {elapsed} on premises</span>;
 }
 
 export function TruckCardList({ children }: { children: ReactNode }) {

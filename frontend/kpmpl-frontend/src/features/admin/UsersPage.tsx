@@ -93,7 +93,7 @@ export function UsersPage() {
 
   return (
     <>
-      <PageHeader title="Users and Access" description="Who can sign in, and what each role can do." actions={<Button onClick={() => setEdit('new')}>{config.isDemo ? 'Add demo user' : 'Add user'}</Button>} />
+      <PageHeader title="Users and Access" crumbs={[{ label: 'Home', to: '/home' }]} description="Who can sign in, and what each role can do." actions={<Button onClick={() => setEdit('new')}>{config.isDemo ? 'Add demo user' : 'Add user'}</Button>} />
       {config.isDemo && (
         <InfoCallout className="-mt-5 mb-8">
           Sample accounts only{config.isMock && <>, password <span className="font-mono not-italic text-ink">demo</span></>}. The real staff list and permissions are pending KPMPL confirmation.
@@ -172,6 +172,7 @@ export function UsersPage() {
 }
 
 function UserDialog({ target, onClose, onSaved }: { target: User | 'new'; onClose: () => void; onSaved: (msg: string, created?: CreatedUser) => void }) {
+  const { user: me } = useAuth();
   const isNew = target === 'new';
   const [username, setUsername] = useState('');
   const [name, setName] = useState(isNew ? '' : target.displayName);
@@ -186,6 +187,11 @@ function UserDialog({ target, onClose, onSaved }: { target: User | 'new'; onClos
     if (!roles.length) ex.roles = 'Choose at least one role.';
     setErrs(ex);
     if (Object.keys(ex).length) return;
+    // F-32: an admin cannot remove their own admin role (there must always be one active admin).
+    if (!isNew && target.id === me?.id && !roles.includes('admin')) {
+      setErrs({ roles: 'You cannot remove your own admin role — ask another admin to make role changes for your account.' });
+      return;
+    }
     const r = isNew
       ? await w.run('create', (k) => api.createUser({ username, displayName: name, roles }, { idempotencyKey: k }))
       : await w.run('update', (k) => api.updateUser(target.id, { displayName: name, roles }, { idempotencyKey: k }));

@@ -40,7 +40,7 @@ const cardsByRole: Record<RoleCode, { main: HomeCard[]; more: HomeCard[] }> = {
   gate_doc_authority: {
     main: [
       { id: 'dprep', title: 'Documents to prepare', desc: 'Attach the papers for each supplier invoice.', to: '/documents', icon: FileText, count: 'docsPrep', countText: waiting, cap: 'docs.prepare' },
-      { id: 'dsend', title: 'Check and send to Head Office', desc: 'Packages ready for your check.', to: '/documents?tab=prep', icon: Send, count: 'docsSend', countText: waiting, cap: 'docs.submit' },
+      { id: 'dsend', title: 'Check and send to Head Office', desc: 'Packages ready for your check.', to: '/documents?tab=send', icon: Send, count: 'docsSend', countText: waiting, cap: 'docs.submit' },
       { id: 'dfix', title: 'Corrections asked by HO', desc: 'Head Office sent a package back.', to: '/documents?tab=fix', icon: ListChecks, count: 'docsFix', countText: waiting, cap: 'docs.submit' },
     ],
     more: [

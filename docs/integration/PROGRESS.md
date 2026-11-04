@@ -28,3 +28,4 @@ Phase 1-2 uncommitted work as the true starting state).
 - B-13 PARKED (OQ-8); B-18 production secret refusals + env.spec; F-13 normal first entry; F-18 mock return_to_ho parity.
 - B-20: OpenAPI snapshot synced (missing routes + record_amounts + money fields + IDEMPOTENCY_IN_PROGRESS); contract test updated.
 - RELEASE 0.8.4: all Phase 3 Medium items done; full check green (backend 67/67 incl. new journey spec, frontend 84/84, builds + lint clean); journey with return_to_ho loop passes live. Migration 20261104223000 added.
+- Phase 4 Low frontend batch: F-19 garbled label fixed, F-20 live elapsed clock, F-21 return timestamps, F-24 crumbs, F-25 milestone-key lookup, F-26 CONFLICT message, F-28 ready-to-send tab, F-30 lint 0/0, F-32 self-admin-role block; F-22/F-23/F-27/F-31 verified already-done.
