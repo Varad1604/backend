@@ -99,13 +99,13 @@ describe.skipIf(!live)('Phase 3 security hardening (isolated temporary schema)',
     const inspection = await app.inject({ method: 'POST', url: `/api/v1/receiving-visits/${visitId}/qc-inspections`, headers: { ...authz('qc'), 'idempotency-key': randomUUID(), 'if-match': String(visit.json().data.version) }, payload: { measurements: [{ code: 'moisture', value: '9.00', unit: 'percent' }, { code: 'impurity', value: '1.00', unit: 'percent' }], intent: 'submit' } });
     expect(inspection.statusCode).toBe(201);
     inspectionId = inspection.json().data.inspectionId;
-    const created = await app.inject({ method: 'POST', url: '/api/v1/document-packages', headers: { ...authz('gate'), 'idempotency-key': randomUUID() }, payload: { visitIds: [visitId], invoiceRef: 'P3-INV-1' } });
+    const created = await app.inject({ method: 'POST', url: '/api/v1/document-packages', headers: { ...authz('gate_doc'), 'idempotency-key': randomUUID() }, payload: { visitIds: [visitId], invoiceRef: 'P3-INV-1' } });
     expect(created.statusCode).toBe(201);
     packageId = created.json().data.id;
     const secondVisit = await app.inject({ method: 'POST', url: '/api/v1/receiving-visits', headers: { ...authz('gate'), 'idempotency-key': randomUUID() }, payload: { officialGateEntryRef: 'P3-' + randomUUID().slice(0, 12), vehicleNumber: 'P3-TRUCK-2', supplierDisplayName: 'P3 Supplier', materialDisplayName: 'Domestic Waste Paper', grossWeight: { value: '12000.000', unit: 'kg' } } });
-    const draft = await app.inject({ method: 'POST', url: '/api/v1/document-packages', headers: { ...authz('gate'), 'idempotency-key': randomUUID() }, payload: { visitIds: [secondVisit.json().data.id] } });
+    const draft = await app.inject({ method: 'POST', url: '/api/v1/document-packages', headers: { ...authz('gate_doc'), 'idempotency-key': randomUUID() }, payload: { visitIds: [secondVisit.json().data.id] } });
     draftPackageId = draft.json().data.id;
-    const uploaded = await multipartUpload('gate', packageId, 'p3.pdf', pdfBuf('%PDF clean fixture'), 'supplier_invoice');
+    const uploaded = await multipartUpload('gate_doc', packageId, 'p3.pdf', pdfBuf('%PDF clean fixture'), 'supplier_invoice');
     expect(uploaded.statusCode, uploaded.body).toBe(201);
     // DocumentPackageView nests files under their checklist row (items[].files, filename field `name`).
     fileId = uploaded.json().data.items.find((i: { category: string }) => i.category === 'supplier_invoice').files.find((f: { name: string }) => f.name === 'p3.pdf').id;
@@ -190,12 +190,12 @@ describe.skipIf(!live)('Phase 3 security hardening (isolated temporary schema)',
   });
 
   it('item 4 — API headers: request id, helmet basics, no-store on API and file responses', async () => {
-    await freshToken('gate');
-    const probe = await app.inject({ method: 'GET', url: '/api/v1/auth/me', headers: { authorization: 'Bearer ' + tokens.gate } });
+    await freshToken('gate_doc'); // file downloads need docs.prepare (Phase 1-2 RBAC)
+    const probe = await app.inject({ method: 'GET', url: '/api/v1/auth/me', headers: { authorization: 'Bearer ' + tokens.gate_doc } });
     expect(probe.headers['x-request-id']).toBeDefined();
     expect(probe.headers['x-content-type-options']).toBe('nosniff');
     expect(probe.headers['cache-control']).toBe('no-store');
-    const file = await app.inject({ method: 'GET', url: `/api/v1/document-files/${fileId}/content`, headers: { authorization: 'Bearer ' + tokens.gate } });
+    const file = await app.inject({ method: 'GET', url: `/api/v1/document-files/${fileId}/content`, headers: { authorization: 'Bearer ' + tokens.gate_doc } });
     expect(file.statusCode).toBe(200);
     expect(file.headers['cache-control']).toBe('private, no-store');
     expect(file.headers['content-type']).toBe('application/pdf');
@@ -223,8 +223,8 @@ describe.skipIf(!live)('Phase 3 security hardening (isolated temporary schema)',
   });
 
   it('item 6 — uploads: content sniffs, empty and oversized refuse, EICAR never lands, ClamAV-down fails closed, bucket stays private', async () => {
-    await freshToken('gate');
-    const upload = (filename: string, buffer: Buffer) => multipartUpload('gate', packageId, filename, buffer);
+    await freshToken('gate_doc');
+    const upload = (filename: string, buffer: Buffer) => multipartUpload('gate_doc', packageId, filename, buffer);
     const renamed = await upload('renamed.pdf', Buffer.from('this is plain text pretending to be a pdf'));
     expect(renamed.statusCode).toBe(422);
     const empty = await upload('empty.pdf', Buffer.alloc(0));
@@ -238,7 +238,7 @@ describe.skipIf(!live)('Phase 3 security hardening (isolated temporary schema)',
     const scanner = app.get(MalwareScannerService);
     expect(await scanner.scan(Buffer.from(EICAR, 'latin1'))).toBe('infected');
     // Nothing infected ever lands: every stored file is clean, so nothing can be served.
-    const view = (await app.inject({ method: 'GET', url: `/api/v1/document-packages/${packageId}`, headers: { authorization: 'Bearer ' + tokens.gate } })).json().data;
+    const view = (await app.inject({ method: 'GET', url: `/api/v1/document-packages/${packageId}`, headers: { authorization: 'Bearer ' + tokens.gate_doc } })).json().data;
     // scanStatus is storage metadata — the API view deliberately never exposes it (the UI
     // only ever lists clean files); assert it against the database rows instead.
     const storedFiles = await base.documentFile.findMany({ where: { packageId } });
@@ -279,10 +279,10 @@ describe.skipIf(!live)('Phase 3 security hardening (isolated temporary schema)',
       // D-03: only the QC operator (qc.decide) records the final decision.
       { method: 'POST', path: `/qc-inspections/${inspectionId}/decisions`, allowed: (r) => roleCapabilities[r].includes('qc.decide'), payload: { outcome: 'accepted' } },
       { method: 'GET', path: '/document-packages', allowed: (r) => roleCapabilities[r].includes('docs.prepare') },
-      { method: 'GET', path: `/document-packages/${draftPackageId}`, allowed: (r) => r === 'gate' || r === 'gate_doc' }, // HO record visibility: drafts 404
-      { method: 'PUT', path: `/document-packages/${packageId}/items/supplier_invoice/applicability`, allowed: (r) => roleCapabilities[r].includes('docs.prepare'), payload: { notApplicableReason: 'P3 matrix reason' } },
-      { method: 'POST', path: `/document-packages/${packageId}/actions`, allowed: (r) => ['gate', 'gate_doc', 'ho'].includes(r), payload: { kind: 'start_review' } },
-      { method: 'GET', path: `/document-files/${fileId}/content`, allowed: (r) => ['gate', 'gate_doc', 'ho'].includes(r) },
+      { method: 'GET', path: `/document-packages/${draftPackageId}`, allowed: (r) => r === 'gate_doc' || r === 'gate_doc_authority' }, // HO record visibility: drafts 404
+      { method: 'PUT', path: `/document-packages/${packageId}/items/supplier_invoice/applicability`, allowed: (r) => roleCapabilities[r].includes('docs.prepare'), payload: { notApplicableReason: 'P3 matrix reason' } }, // roleCapabilities-driven
+      { method: 'POST', path: `/document-packages/${packageId}/actions`, allowed: (r) => ['gate_doc', 'gate_doc_authority', 'ho'].includes(r), payload: { kind: 'start_review' } },
+      { method: 'GET', path: `/document-files/${fileId}/content`, allowed: (r) => ['gate_doc', 'gate_doc_authority', 'ho'].includes(r) },
       { method: 'GET', path: '/reports/overview', allowed: (r) => roleCapabilities[r].includes('overview.view') },
       { method: 'GET', path: '/reports/receiving.csv', allowed: (r) => roleCapabilities[r].includes('overview.view') },
       { method: 'GET', path: '/head-office/cases', allowed: (r) => roleCapabilities[r].includes('ho.inbox') },

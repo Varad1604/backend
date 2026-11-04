@@ -25,7 +25,9 @@ const retainedCapabilityRows = [
 export type Capability = typeof briefCapabilities[number] | typeof retainedCapabilityRows[number];
 
 // Brief §4 matrix, exactly, extended with the two accounting roles (upgrade 2026-11-03).
-const gate = ['receiving.view', 'receiving.create', 'receiving.edit', 'gate.followup', 'qc.queue.view'] as const;
+// B-19 (single source of truth): the DB never removed `overview.view` from the gate role
+// (only docs.prepare was migrated away), so per the keep-today's-access rule the gate keeps it.
+const gate = ['receiving.view', 'receiving.create', 'receiving.edit', 'gate.followup', 'qc.queue.view', 'overview.view'] as const;
 const qcOperator = ['receiving.view', 'qc.queue.view', 'qc.measure', 'qc.decide', 'overview.view'] as const;
 const docs = ['receiving.view', 'overview.view', 'docs.prepare', 'docs.submit'] as const;
 const headOffice = ['receiving.view', 'overview.view', 'ho.inbox', 'ho.review', 'erp.confirm', 'erp.purchase_voucher', 'erp.plant_head_approval'] as const;

@@ -1,0 +1,13 @@
+# OPEN_QUESTIONS — needs KPMPL sign-off
+
+| Ref | Question | Safe default applied |
+|---|---|---|
+| OQ-1 | The mission references docs (`docs/integration/PROGRESS.md`, `docs/FRONTEND_CHANGES_v0.8.md`, `backend/docs/API_CHANGES_v0.8.md`) and an "attached audit" with B-xx/F-xx IDs that are NOT in this workspace. | Treat this workspace's actual code as truth; each backlog item verified against real code. Created the docs fresh as deliverables. |
+| OQ-2 | B-11 money fields: exactly which amounts does KPMPL want on the accounting case (invoice/GST/TDS/net), and are they computed or staff-typed? | Optional nullable `invoiceAmount`, `gstAmount`, `tdsAmount`, `netAmount` decimals + UI inputs; none required; staff-typed only; no calculations. KPMPL must confirm. |
+| OQ-3 | B-19: policy.ts as single source vs the DB `gate_doc` (legacy alias) + `gate_doc_authority` rows that both exist with different grants today. | Keep today's access (both rows stay); policy.ts remains the assignment source; differences parked. |
+| OQ-4 | B-23: policy.spec expects the pre-Phase-2 matrix; the DB has `gate_doc_authority` as an ACTIVE role (not merely legacy). | Test updated to the current 8-role matrix; the mission's "legacy and unused" premise does not match the code (gate_doc_authority holds docs.prepare + docs.submit + erp.plant_head_approval and is seeded/usable). |
+| OQ-5 | B-24: reads previously filtered `isDemo = true`; real (non-demo) rows would be invisible. | Reads default to all rows; the column stays for display/seed purposes. |
+| OQ-6 | Mission says "Head Accountant return goes to returned_to_ho" as a Phase 1-2 rule — confirmed present in code (return_to_ho action with failedChecks). Kept as-is. | — |
+| OQ-7 | Mission says "per-user 5-session cap" — the implemented cap is GLOBAL five live sessions (oldest evicted). Per-user-5 would allow up to 50 concurrent sessions; the stricter global cap blocks nothing a user can do today except when the mill is at capacity. | Kept the global cap (stricter); flagged for KPMPL to confirm the intended semantics. |
+| OQ-8 | B-13: blocking ERP milestone confirm/reverse after bill_posted would remove an action HO staff can perform today (late DataMan confirmations after internal posting — validated in the deployment walk). | PARKED per the stricter-option rule unless KPMPL confirms DataMan milestones should freeze at bill_posted. |
+| OQ-9 | B-26 "unused accounting states": `forwarded_to_head_accountant` / `returned_to_ho` / `returned_to_accountant` — are all three canonical, or are some transitional? | Kept all states; no state removed without KPMPL confirmation. |

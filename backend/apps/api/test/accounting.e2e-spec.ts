@@ -48,16 +48,16 @@ describe.skipIf(process.env.REQUIRE_LIVE_DEPENDENCIES !== 'true')('accounting wo
     // --- Gate + HO bring a package to `verified`, with one real PDF attached ---
     const visitResponse = await call('POST', '/receiving-visits', gate, { officialGateEntryRef: 'DEMO-' + randomUUID().slice(0, 20), vehicleNumber: 'DEMO-TRUCK-AC', supplierDisplayName: 'DEMO-Supplier', materialDisplayName: 'DEMO-Waste Paper', grossWeight: { value: '15000.000', unit: 'kg' } });
     expect(visitResponse.statusCode).toBe(201); const visitId = visitResponse.json().data.id;
-    const created = await call('POST', '/document-packages', gate, { visitIds: [visitId], invoiceRef: '0008-HO' });
+    const created = await call('POST', '/document-packages', docs, { visitIds: [visitId], invoiceRef: '0008-HO' }); // Phase 1-2 RBAC: the Document Authority prepares packages
     expect(created.statusCode, created.body).toBe(201);
     let pkg = created.json().data;
     const boundary = '----kpmplac' + randomUUID(); const pdf = Buffer.from('%PDF-1.4 DEMO accounting fixture');
     const body = Buffer.concat([Buffer.from(`--${boundary}\r\nContent-Disposition: form-data; name="category"\r\n\r\nsupplier_invoice\r\n`), Buffer.from(`--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="DEMO-INV.pdf"\r\nContent-Type: application/pdf\r\n\r\n`), pdf, Buffer.from(`\r\n--${boundary}--\r\n`)]);
-    const uploaded = await app.inject({ method: 'POST', url: `/api/v1/document-packages/${pkg.id}/files`, headers: { authorization: 'Bearer ' + gate, 'idempotency-key': randomUUID(), 'if-match': String(pkg.version), 'content-type': `multipart/form-data; boundary=${boundary}`, 'content-length': String(body.length) }, payload: body });
+    const uploaded = await app.inject({ method: 'POST', url: `/api/v1/document-packages/${pkg.id}/files`, headers: { authorization: 'Bearer ' + docs, 'idempotency-key': randomUUID(), 'if-match': String(pkg.version), 'content-type': `multipart/form-data; boundary=${boundary}`, 'content-length': String(body.length) }, payload: body });
     expect(uploaded.statusCode, uploaded.body).toBe(201);
     pkg = uploaded.json().data; // the upload claimed version 1 → 2; keep the fresh row.
-    for (const category of categories.slice(1)) { const r = await call('PUT', `/document-packages/${pkg.id}/items/${category}/applicability`, gate, { notApplicableReason: 'DEMO not applicable' }, pkg.version); pkg = r.json().data; }
-    const ready = await call('POST', `/document-packages/${pkg.id}/actions`, gate, { kind: 'mark_ready' }, pkg.version); expect(ready.statusCode, ready.body).toBe(200); pkg = ready.json().data;
+    for (const category of categories.slice(1)) { const r = await call('PUT', `/document-packages/${pkg.id}/items/${category}/applicability`, docs, { notApplicableReason: 'DEMO not applicable' }, pkg.version); pkg = r.json().data; }
+    const ready = await call('POST', `/document-packages/${pkg.id}/actions`, docs, { kind: 'mark_ready' }, pkg.version); expect(ready.statusCode, ready.body).toBe(200); pkg = ready.json().data;
     const sent = await call('POST', `/document-packages/${pkg.id}/actions`, docs, { kind: 'submit_to_ho', confirmComplete: true }, pkg.version); expect(sent.statusCode, sent.body).toBe(200); pkg = sent.json().data;
     const reviewing = await call('POST', `/document-packages/${pkg.id}/actions`, ho, { kind: 'start_review' }, pkg.version); expect(reviewing.statusCode, reviewing.body).toBe(200); pkg = reviewing.json().data;
     const checked = await call('POST', '/head-office/reviews', ho, { packageId: pkg.id, category: 'supplier_invoice', check: 'ok' }, pkg.version); expect(checked.statusCode, checked.body).toBe(200); pkg = checked.json().data;
