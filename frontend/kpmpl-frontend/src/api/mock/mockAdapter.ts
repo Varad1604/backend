@@ -778,7 +778,7 @@ export const mockAdapter: ReceivingApi = {
       items: DOC_CATEGORIES.map((category) => ({ category, state: 'missing', files: [], notApplicableReason: null, hoCheck: 'unchecked', hoNote: null })),
       submittedBy: null, submittedAt: null, corrections: [],
       erp: ERP_ORDER.map((type) => ({ type, status: 'pending', dataManRef: null, erpOccurredAt: null, note: null, confirmedBy: null, confirmedAt: null, source: 'manual_staff_confirmation' })),
-      reminders: [], history: [], accounting: null, createdBy: user.displayName, createdAt: now, updatedAt: now, version: 0,
+      reminders: [], history: [], accounting: null, accountingChecks: [], createdBy: user.displayName, createdAt: now, updatedAt: now, version: 0,
     };
     logPkg(p, user.displayName, 'Package created', `Linked ${visits.map((v) => v.officialGateEntryRef).join(', ')}.`);
     db.packages.push(p);
@@ -1004,7 +1004,9 @@ export const mockAdapter: ReceivingApi = {
   },
 
   async recordErpMilestone(id, input, opts) {
-    const u = requireCap('erp.confirm');
+    const cap: string = input.type === 'plant_head_grn_approval' ? 'erp.plant_head_approval' : input.type === 'purchase_voucher' ? 'erp.purchase_voucher' : input.type === 'final_posting' ? 'erp.final_posting' : '';
+    if (!cap) throw rule('Unknown milestone type.');
+    const u = requireCap(cap as Capability);
     await writeGate();
     const db = load();
     const prior = idem<string>(db, opts.idempotencyKey);
@@ -1020,7 +1022,7 @@ export const mockAdapter: ReceivingApi = {
       if (m.status === 'confirmed') throw rule('This milestone is already confirmed. Reverse it first to change it.');
       // C-10 (confirmed): Plant Head approval before Voucher. Posting after voucher: prototype assumption (D-08).
       const prev = idx > 0 ? p.erp.find((x) => x.type === ERP_ORDER[idx - 1])! : null;
-      if (prev && prev.status !== 'confirmed') throw rule(`Confirm “${erpMilestoneMeta[prev.type].short}” first.`);
+      if (prev && prev.status !== 'confirmed') throw rule(`Confirm "${erpMilestoneMeta[prev.type].short}" first.`);
       checkText(fields, 'dataManRef', input.dataManRef, meta.refLabel.toLowerCase(), input.type !== 'final_posting', 40);
       if (!input.verifiedInDataManByStaff) fields.verifiedInDataManByStaff = 'Confirm you checked this in DataMan.';
       if (input.erpOccurredAt && Date.parse(input.erpOccurredAt) > Date.now() + 5 * 60000) fields.erpOccurredAt = 'This time cannot be in the future.';
@@ -1034,7 +1036,7 @@ export const mockAdapter: ReceivingApi = {
     } else {
       if (m.status !== 'confirmed') throw rule('Only a confirmed milestone can be reversed.');
       const next = p.erp.slice(idx + 1).find((x) => x.status === 'confirmed');
-      if (next) throw rule(`Reverse “${erpMilestoneMeta[next.type].short}” first.`);
+      if (next) throw rule(`Reverse "${erpMilestoneMeta[next.type].short}" first.`);
       checkReason(fields, 'note', input.note, 'reversing this milestone');
       fail(fields);
       const was = m.dataManRef;
@@ -1157,7 +1159,7 @@ export const mockAdapter: ReceivingApi = {
         else acc.headAccountantNote = next;
         acc.corrections.push({ id: evId(), field: action.field, oldValue: current, newValue: next, reason: action.reason.trim(), correctedBy: u.displayName, correctedAt: nowIso() });
         logPkg(p, u.displayName, 'Accounting correction recorded',
-          `${action.field === 'accountingRef' ? 'Accounting reference' : action.field === 'accountantNote' ? 'Accountant note' : 'Head Accountant note'}: ${current ? `“${current}”` : '—'} → “${next}”. Reason: ${action.reason.trim()}`);
+          `${action.field === 'accountingRef' ? 'Accounting reference' : action.field === 'accountantNote' ? 'Accountant note' : 'Head Accountant note'}: ${current ? `"${current}"` : '—'} → "${next}". Reason: ${action.reason.trim()}`);
         break;
       }
     }
@@ -1168,6 +1170,55 @@ export const mockAdapter: ReceivingApi = {
 
   fileContentUrl(fileId) {
     return fileBlobs.get(fileId) ?? null;
+  },
+
+  recordAccountingChecks(id, checks, _opts) {
+    return (async () => {
+      await delay();
+      const db = load();
+      requireCap('accounting.review', db);
+      const p = findPkg(db, id);
+      if (!ACCOUNTING_VISIBLE.includes(p.status))
+        throw rule('This package is not in the accounting workflow.');
+      if (p.status !== 'with_accounting')
+        throw rule('The accountant can only record checks while the package is with them (with_accounting).');
+      const user = currentUser(db);
+      const inputChecks = (checks as any)?.checks ?? checks;
+      const now = nowIso();
+      const makeCheck = (type: 'bill_passed' | 'gst_checked' | 'tds_checked', input: any) => {
+        const status = input?.status ?? (input?.ok === true || input?.checked === true || input?.passed === true ? 'ok' : input?.status ?? 'pending');
+        const note = input?.note ?? null;
+        return { type, status, note, checkedBy: user.displayName, checkedAt: now };
+      };
+      const entry = {
+        id: 'chk-' + id.slice(-8),
+        checks: Array.isArray(inputChecks)
+          ? inputChecks.map((c: any) => ({ type: c.type, status: c.status, note: c.note ?? null, checkedBy: user.displayName, checkedAt: now }))
+          : [
+              makeCheck('bill_passed', inputChecks?.billPassed ?? inputChecks),
+              makeCheck('gst_checked', inputChecks?.gstChecked ?? inputChecks),
+              makeCheck('tds_checked', inputChecks?.tdsChecked ?? inputChecks),
+            ],
+        checkedBy: user.displayName,
+        checkedAt: now,
+      };
+      p.accountingChecks = [entry];
+      logPkg(p, user.displayName, 'Checks recorded', 'Accounting checks recorded');
+      save(db);
+      return viewOf(db, p);
+    })();
+  },
+
+  headAccountantCases() {
+    return (async () => {
+      await delay();
+      const db = load();
+      requireCap('accounting.approve', db);
+      const rows = db.packages
+        .filter((p) => p.status === 'with_head_accountant' || p.status === 'accounting_approved')
+        .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+      return rows.map((p) => viewOf(db, p));
+    })();
   },
 };
 

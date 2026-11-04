@@ -11,11 +11,12 @@ export const conflict = (code: string, message: string, meta?: object) => new Ht
 @Injectable()
 export class IdempotentWriteService {
   constructor(private readonly prisma: PrismaService, private readonly auth: AuthService) {}
-  async run(actor: Actor, capability: Capability, path: string, key: string, input: unknown,
+  async run(actor: Actor, capability: Capability | Capability[], path: string, key: string, input: unknown,
     work: (tx: Prisma.TransactionClient, actor: Actor) => Promise<{ status: number; body: Prisma.InputJsonValue }>, method = 'POST'): Promise<WriteResult> {
     const requestHash = createHash('sha256').update(canonical(input)).digest('hex');
     return this.prisma.$transaction(async tx => {
-      const currentActor = await this.auth.authorize(actor, capability, tx);
+      const caps = Array.isArray(capability) ? capability : [capability];
+      const currentActor = await this.auth.authorizeAny(actor, caps, tx);
       const scope = currentActor.userId + ':' + method + ':' + path + ':' + key;
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(6200010, hashtext(${scope}))`;
       const identity = { userId: currentActor.userId, method, path, key };

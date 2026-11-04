@@ -14,14 +14,14 @@ import { StatusLine } from '../../components/ui/StatusTag';
 import { Tabs } from '../../components/ui/Tabs';
 import { RequiredMark } from '../../components/ui/Field';
 import { Alert, EmptyState, ErrorState, LoadingState, Note } from '../../components/ui/States';
-import { Button } from '../../components/ui/Button';
+import { Button, ButtonLink } from '../../components/ui/Button';
 import { Tag } from '../../components/ui/StatusTag';
 import { TextAreaField } from '../../components/ui/Field';
 import { FormDialog } from '../../components/ui/Dialog';
 import { WriteError } from '../../components/ui/WriteError';
 import { Timeline } from '../../components/ui/Timeline';
-import { AccountingPanel } from '../accounting/AccountingPages';
 import { Checklist, CorrectionList, ErpPanel, LinkedVisits, PackageFacts, PackageStatusTag } from '../documents/shared';
+import { BottomBar } from '../../components/ui/BottomBar';
 
 const tabs: { key: string; label: string; states: PackageStatus[] }[] = [
   { key: 'new', label: 'New & resubmitted', states: ['submitted_to_ho', 'resubmitted'] },
@@ -127,7 +127,7 @@ export function HoReviewPage() {
     }
   }
 
-  const actions = canVerify && (['submitted_to_ho', 'resubmitted'].includes(p.status) || p.status === 'under_ho_review') ? (
+  const hoInboxAction = canVerify && (['submitted_to_ho', 'resubmitted'].includes(p.status) || p.status === 'under_ho_review') ? (
     <>
       {['submitted_to_ho', 'resubmitted'].includes(p.status) && <Button onClick={startReview} loading={w.busy === 'start'}>Start review</Button>}
       {p.status === 'under_ho_review' && (
@@ -144,33 +144,33 @@ export function HoReviewPage() {
       <PageHeader mono title={p.packageRef} crumbs={[{ label: 'Head Office Inbox', to: '/head-office' }, { label: p.packageRef }]}
         status={<StatusLine items={[<PackageStatusTag key="s" p={p} />, <span key="o" className="text-muted">Next with {packageStatusMeta[p.status].owner}</span>]} />}
         description={<>{p.supplierDisplayName} · Invoice <span className="font-mono text-ink">{p.invoiceRef ?? 'not entered'}</span></>}
-        actions={actions} />
-      {canVerify && (
-        <div className="-mt-4 mb-8 text-[16px] text-ink">
-          {p.status === 'under_ho_review' && (unchecked.length > 0
-            ? <p>Open each PDF and mark it checked. <span className="font-mono font-medium text-signal">{unchecked.length}</span> still to check before you can verify.</p>
-            : <p>All attached documents are checked. Verify, or ask the Gate for a correction.</p>)}
-          {p.status === 'correction_requested' && <p>Waiting for the Gate to correct and resubmit.</p>}
-          {p.status === 'verified' && <Note>Documents verified. The package now moves to Accounts. Price, GST, TDS or bill-number corrections stay in DataMan with authorised HO staff. Your DataMan milestones below remain active.</Note>}
-          {['with_accounting', 'with_head_accountant', 'accounting_approved', 'bill_posted'].includes(p.status)
-            && <Note>The accounting chain (Accountant → Head Accountant → Bill Posted) is tracked on its own. Confirm the DataMan milestones below as staff check DataMan.</Note>}
-        </div>
-      )}
+        actions={canVerify && ['submitted_to_ho', 'resubmitted'].includes(p.status) ? [<ButtonLink to={`/head-office/${p.id}/correct`} variant="ghost">Correction requested</ButtonLink>] : undefined} />
       {notice && <Alert tone="success" className="mb-8">{notice}</Alert>}
       <WriteError error={dlg ? null : w.error} onReload={reload} className="mb-8" />
 
-      <div className="flex min-w-0 flex-col gap-12">
-        <Card title="Documents">
-          <Checklist p={p} mode="ho" editable={false} reviewing={reviewing} onChanged={changed} />
-        </Card>
-        <div className="grid gap-12 xl:grid-cols-[minmax(0,1fr)_minmax(0,1.7fr)] xl:gap-14">
-          <Card title="Package"><PackageFacts p={p} /></Card>
-          <Card title="Linked trucks"><LinkedVisits p={p} linkToVisit={can(user, 'receiving.view')} /></Card>
+      <div className="mx-auto min-w-0 max-w-[1216px] flex flex-col pb-24">
+        <div className="flex min-w-0 flex-col gap-12">
+          <Card title="Documents" subtitle={<><span className="font-mono">{attached.length - unchecked.length}</span> of <span className="font-mono">{attached.length}</span> checked · <span className="font-mono">{unchecked.length}</span> still to check</>}>
+            <Checklist p={p} mode="ho" editable={false} reviewing={reviewing} onChanged={changed} />
+          </Card>
+          <div className="grid gap-12 xl:grid-cols-[minmax(0,1fr)_minmax(0,1.7fr)] xl:gap-14">
+            <Card title="Package"><PackageFacts p={p} /></Card>
+            <Card title="Linked trucks"><LinkedVisits p={p} linkToVisit={can(user, 'receiving.view')} /></Card>
+          </div>
+          <CorrectionList p={p} />
+          <ErpPanel p={p} canConfirm={can(user, 'erp.confirm') || can(user, 'erp.purchase_voucher') || can(user, 'erp.plant_head_approval') || can(user, 'erp.final_posting')} onChanged={changed} />
+          <Card title="History"><Timeline events={p.history.slice().reverse()} /></Card>
         </div>
-        <AccountingPanel p={p} onChanged={changed} interactive={false} />
-        <CorrectionList p={p} />
-        <ErpPanel p={p} canConfirm={can(user, 'erp.confirm')} onChanged={changed} />
-        <Card title="History"><Timeline events={p.history.slice().reverse()} /></Card>
+
+        {/* Sticky bottom action bar (Part B). Left = N still to check; right = primary actions. */}
+        <BottomBar left={<>
+          {canVerify && p.status === 'under_ho_review' && (
+            <span className="text-[16px] text-muted">{unchecked.length} still to check before you can verify.</span>
+          )}
+          {canVerify && ['submitted_to_ho', 'resubmitted'].includes(p.status) && (
+            <Button variant="ghost" onClick={openCorrect}>Request correction from Gate</Button>
+          )}
+        </>} right={hoInboxAction} />
       </div>
 
       <FormDialog open={!!dlg} busy={!!w.busy} onCancel={() => setDlg(null)} onConfirm={confirm} wide={dlg === 'correct'}
@@ -192,7 +192,7 @@ export function HoReviewPage() {
               {errs.categories && <p role="alert" className="mt-1 text-[15px] text-problem">{errs.categories}</p>}
             </fieldset>
             <TextAreaField label="What is wrong or missing" required rows={3} maxLength={1000} value={reason} onChange={(e) => setReason(e.target.value)} error={errs.reason} />
-            <Note>Sending a document back does not reject the load. The HO return and hold process is pending KPMPL confirmation.</Note>
+            <Note>स제작을 게이트로 돌려보내는 것이 적제작된 적재를 거부하지는 않습니다. HO 반환 및 보류 절차는 KPMPL 확인이 pending입니다.</Note>
           </>
         )}
       </FormDialog>

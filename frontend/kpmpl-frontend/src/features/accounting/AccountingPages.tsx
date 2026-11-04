@@ -6,14 +6,15 @@ import { useWrite } from '../../hooks/useWrite';
 import { useAuth } from '../../auth/AuthContext';
 import { can } from '../../auth/permissions';
 import { accountingStageMeta, packageStatusMeta } from '../../domain/status';
-import type { AccountingField, DocumentPackageView, PackageStatus } from '../../domain/types';
+import { toUiTone } from '../../components/ui/StatusChip';
+import type { AccountingChecks, AccountingField, DocumentPackageView, PackageStatus } from '../../domain/types';
 import { formatDateTime, relativeAge } from '../../lib/format';
 import { Card, ListCard, ListToolbar, PageHeader, TableWrap, TextButton } from '../../components/ui/Layout';
-import { StatusLine } from '../../components/ui/StatusTag';
+import { StatusLine, Tag } from '../../components/ui/StatusTag';
+import { StatusChip } from '../../components/ui/StatusChip';
 import { Tabs } from '../../components/ui/Tabs';
 import { Note, EmptyState, ErrorState, LoadingState, Alert } from '../../components/ui/States';
 import { Button } from '../../components/ui/Button';
-import { Tag } from '../../components/ui/StatusTag';
 import { TextAreaField, TextField } from '../../components/ui/Field';
 import { FormDialog } from '../../components/ui/Dialog';
 import { WriteError } from '../../components/ui/WriteError';
@@ -39,11 +40,16 @@ export function AccountingQueuePage() {
   const tab = tabs.find((t) => t.key === params.get('tab')) ?? tabs[0]!;
   const { state, reload } = useAsync(() => api.listPackages('accounting'), []);
   const counts = useMemo(() => Object.fromEntries(tabs.map((t) => [t.key, (state.data ?? []).filter((p) => t.states.includes(p.status)).length])), [state.data]);
+  const headAccountantCount = useMemo(() => (state.data ?? []).filter((p) => p.status === 'with_head_accountant' || p.status === 'accounting_approved').length, [state.data]);
   const rows = (state.data ?? []).filter((p) => tab.states.includes(p.status))
     .sort((a, b) => (a.submittedAt ?? a.updatedAt).localeCompare(b.submittedAt ?? b.updatedAt));
   return (
     <>
-      <PageHeader title="Accounting Queue" description="Verified document packages, from Head Office to the posted bill." />
+      <PageHeader title="Accounting Queue" description="Verified document packages, from Head Office to the posted bill."
+        actions={headAccountantCount > 0 ? (            <StatusChip tone={toUiTone['info']} size="sm">
+            Head Accountant {headAccountantCount}
+          </StatusChip>
+        ) : undefined} />
       <ListCard>
         <h2 className="kicker mb-1">Accounting pipeline</h2>
         <ListToolbar>
@@ -124,6 +130,39 @@ export function AccountingPanel({ p, onChanged, interactive }: {
   const [reason, setReason] = useState('');
   const [errs, setErrs] = useState<Record<string, string>>({});
   const opts = (k: string) => ({ idempotencyKey: k, expectedVersion: p.version });
+  const existingChecks = p.accountingChecks?.[0];
+  const makeDefaultChecks = (): AccountingChecks => ({
+    checks: [
+      { type: 'bill_passed', status: 'pending', note: null, checkedBy: null, checkedAt: null },
+      { type: 'gst_checked', status: 'pending', note: null, checkedBy: null, checkedAt: null },
+      { type: 'tds_checked', status: 'pending', note: null, checkedBy: null, checkedAt: null },
+    ],
+  });
+  const syncChecks = (ec?: typeof existingChecks): AccountingChecks => {
+    if (!ec?.checks) return makeDefaultChecks();
+    const map = new Map(ec.checks.map((c) => [c.type, c]));
+    return {
+      checks: [
+        map.get('bill_passed') ?? { type: 'bill_passed', status: 'pending', note: null, checkedBy: null, checkedAt: null },
+        map.get('gst_checked') ?? { type: 'gst_checked', status: 'pending', note: null, checkedBy: null, checkedAt: null },
+        map.get('tds_checked') ?? { type: 'tds_checked', status: 'pending', note: null, checkedBy: null, checkedAt: null },
+      ],
+    };
+  };
+  const [checks, setChecks] = useState<AccountingChecks>(() => syncChecks(existingChecks));
+  const [recordingChecks, setRecordingChecks] = useState(false);
+  const checksChanged = (next: DocumentPackageView) => { setChecks(syncChecks(next.accountingChecks?.[0])); onChanged('Accounting checks recorded.', next); };
+  const getStatus = (type: 'bill_passed' | 'gst_checked' | 'tds_checked') => checks.checks.find((c) => c.type === type)?.status ?? 'pending';
+  const allOk = checks.checks.every((c) => c.status === 'ok');
+  async function recordChecks(key: string) {
+    if (!canWork) return;
+    setRecordingChecks(true);
+    const r = await w.run(key, (k) => api.recordAccountingChecks(p.id, checks, { idempotencyKey: k }));
+    setRecordingChecks(false);
+    if (r.ok) { checksChanged(r.data); return r.data; }
+    if (r.error?.code === 'VALIDATION_FAILED') setErrs(r.error.fields);
+    return null;
+  }
 
   function openCorrect(field: AccountingField, current: string | null) {
     setCorrecting({ field, current }); setValue(''); setReason(''); setErrs({}); w.setError(null);
@@ -210,19 +249,43 @@ export function AccountingPanel({ p, onChanged, interactive }: {
             <AccountingFieldRow label="Head Accountant note" value={acc.headAccountantNote} field="headAccountantNote"
               editable={!!canCorrectHeadNote && p.status !== 'verified'} onCorrect={openCorrect} />
           </div>
+          {/* Accountant review checks — recorded once the package is with the Accountant. */}
+          {canWork && acc && (
+            <div className="mb-6 flex flex-wrap gap-4">
+              <label className="inline-flex items-center gap-2.5 cursor-pointer select-none">
+                <input type="checkbox" checked={getStatus('bill_passed') === 'ok'} onChange={(e) => setChecks((c) => ({ checks: c.checks.map((ch) => ch.type === 'bill_passed' ? { ...ch, status: e.target.checked ? 'ok' : 'pending' } : ch) }))}
+                  className="size-4 rounded border-field text-action focus-visible:ring-2 focus-visible:ring-action focus-visible:ring-offset-1 disabled:opacity-50" />
+                <span className="text-[15px] text-ink">Supplier bill checked (passed)</span>
+              </label>
+              <label className="inline-flex items-center gap-2.5 cursor-pointer select-none">
+                <input type="checkbox" checked={getStatus('gst_checked') === 'ok'} onChange={(e) => setChecks((c) => ({ checks: c.checks.map((ch) => ch.type === 'gst_checked' ? { ...ch, status: e.target.checked ? 'ok' : 'pending' } : ch) }))}
+                  className="size-4 rounded border-field text-action focus-visible:ring-2 focus-visible:ring-action focus-visible:ring-offset-1 disabled:opacity-50" />
+                <span className="text-[15px] text-ink">GST checked</span>
+              </label>
+              <label className="inline-flex items-center gap-2.5 cursor-pointer select-none">
+                <input type="checkbox" checked={getStatus('tds_checked') === 'ok'} onChange={(e) => setChecks((c) => ({ checks: c.checks.map((ch) => ch.type === 'tds_checked' ? { ...ch, status: e.target.checked ? 'ok' : 'pending' } : ch) }))}
+                  className="size-4 rounded border-field text-action focus-visible:ring-2 focus-visible:ring-action focus-visible:ring-offset-1 disabled:opacity-50" />
+                <span className="text-[15px] text-ink">TDS checked</span>
+              </label>
+            </div>
+          )}
           {canCorrect && p.status === 'verified' && <Note>Start accounting before entering the reference.</Note>}
 
-          {/* Stage actions, right-aligned in a footer row like the rest of the app. */}
+          {/* Stage actions — sticky bottom bar (Part B). */}
           {(canWork || canHead || canPost) && (
-            <div className="mt-6 flex flex-wrap justify-end gap-3 border-t border-rule pt-5">
-              {canWork && <Button onClick={() => openDialog('handover')} loading={w.busy === 'handover'}>Send to Head Accountant</Button>}
+            <div className="sticky bottom-0 z-10 flex flex-wrap items-center justify-end gap-3 border-t border-rule bg-surface/95 px-4 py-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] backdrop-blur-sm">
+              {canWork && (existingChecks?.checks?.length || checks.checks.some((c) => c.status === 'ok' || c.status === 'issue')) && (
+                <Button onClick={() => { const k = 'chk-' + Math.random().toString(36).slice(2, 8); void recordChecks(k); }} loading={recordingChecks}>
+                  Record checks
+                </Button>
+              )}
+              {canWork && <Button onClick={() => openDialog('handover')} loading={w.busy === 'handover'} disabled={!allOk}>
+                Send to Head Accountant
+              </Button>}
               {canHead && <Button variant="ghost" onClick={() => openDialog('return')} loading={w.busy === 'return'}>Return to Accountant</Button>}
               {canHead && <Button onClick={() => openDialog('approve')} loading={w.busy === 'approve'}>Approve accounting</Button>}
               {canPost && <Button onClick={() => openDialog('post')} loading={w.busy === 'post'}>Post bill…</Button>}
             </div>
-          )}
-          {canWork && (
-            <p className="mt-3 text-[15px] text-muted">Handing over confirms your entries are complete. The Head Accountant can still return them.</p>
           )}
 
           {acc.corrections.length > 0 && (
@@ -320,7 +383,7 @@ export function AccountingPackagePage() {
         description={<>{p.supplierDisplayName} · Invoice <span className="font-mono text-ink">{p.invoiceRef ?? 'not entered'}</span></>} />
       {notice && <Alert tone="success" className="mb-8">{notice}</Alert>}
 
-      <div className="flex min-w-0 flex-col gap-12">
+      <div className="mx-auto min-w-0 max-w-[1216px] flex flex-col pb-24 gap-12">
         <AccountingPanel p={p} onChanged={changed} interactive={interactive} />
         <Card title="Documents">
           <Checklist p={p} mode="ho" editable={false} reviewing={false} onChanged={changed} />

@@ -29,7 +29,7 @@ export type PackageAction = z.infer<typeof actionSchema>;
 // ---------- Accounting workflow (upgrade 2026-11-03) ----------
 // States after HO verification. Additive string values on DocumentPackage.status —
 // no existing value is renamed or removed (safe-migration rule).
-export const ACCOUNTING_STATES = ['with_accounting', 'with_head_accountant', 'accounting_approved', 'bill_posted'] as const;
+export const ACCOUNTING_STATES = ['with_accounting', 'with_head_accountant', 'accounting_approved', 'bill_posted', 'forwarded_to_head_accountant', 'returned_to_ho', 'returned_to_accountant'] as const;
 export type AccountingState = (typeof ACCOUNTING_STATES)[number];
 /** Everything an accountant or head accountant may see: verified (hand-off point) plus the accounting chain. */
 export const ACCOUNTING_VISIBLE = ['verified', ...ACCOUNTING_STATES] as const;
@@ -39,6 +39,7 @@ const opaqueRef = z.string().trim().min(1).max(40);
 export const accountingActionSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('start_accounting') }).strict(),
   z.object({ kind: z.literal('submit_to_head_accountant'), confirmComplete: z.literal(true), accountantNote: z.string().trim().max(1000).optional() }).strict(),
+  z.object({ kind: z.literal('return_to_ho'), reason: z.string().trim().min(1).max(1000), failedChecks: z.array(z.enum(['bill_passed', 'gst_checked', 'tds_checked'])).min(1) }).strict(),
   z.object({ kind: z.literal('return_to_accountant'), reason: z.string().trim().min(1).max(1000) }).strict(),
   z.object({ kind: z.literal('approve_accounting'), headAccountantNote: z.string().trim().max(1000).optional() }).strict(),
   // Duplicate-posting guard lives in the state machine: post_bill is legal only from
@@ -47,3 +48,20 @@ export const accountingActionSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('correct_accounting'), field: z.enum(accountingFields), value: z.string().trim().max(1000), reason: z.string().trim().min(1).max(500) }).strict(),
 ]);
 export type AccountingAction = z.infer<typeof accountingActionSchema>;
+
+/** Body for POST /accounting/cases/{id}/checks: the three accountant review checks. */
+export const accountingCheckStatusSchema = z.enum(['pending', 'ok', 'issue']);
+export const singleCheckSchema = z.object({
+  type: z.enum(['bill_passed', 'gst_checked', 'tds_checked']),
+  status: accountingCheckStatusSchema,
+  note: z.string().max(500).optional(),
+  checkedBy: z.string().uuid().optional(),
+  checkedAt: z.iso.datetime().optional(),
+}).strict();
+export const accountingChecksSchema = z.object({
+  checks: z.array(singleCheckSchema).min(3).max(3),
+}).strict();
+export type AccountingChecks = z.infer<typeof accountingChecksSchema>;
+export type AccountingCheck = z.infer<typeof singleCheckSchema>;
+export type AccountingCheckType = 'bill_passed' | 'gst_checked' | 'tds_checked';
+export type AccountingCheckStatus = z.infer<typeof accountingCheckStatusSchema>;

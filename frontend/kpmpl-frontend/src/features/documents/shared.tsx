@@ -1,3 +1,5 @@
+import { useAuth } from '../../auth/AuthContext';
+import { can } from '../../auth/permissions';
 import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api } from '../../api';
@@ -253,6 +255,13 @@ export function CorrectionList({ p }: { p: DocumentPackageView }) {
  * when it was recorded here, the DataMan reference, and source = staff confirmed.
  */
 export function ErpPanel({ p, canConfirm, onChanged }: { p: DocumentPackageView; canConfirm: boolean; onChanged: (msg: string, updated?: DocumentPackageView) => void }) {
+  const { user } = useAuth();
+  function canDo(type: ErpMilestoneType) {
+    if (type === 'plant_head_grn_approval') return can(user, 'erp.plant_head_approval') || can(user, 'erp.confirm');
+    if (type === 'purchase_voucher') return can(user, 'erp.purchase_voucher') || can(user, 'erp.confirm');
+    if (type === 'final_posting') return can(user, 'erp.final_posting');
+    return canConfirm;
+  }
   const w = useWrite();
   const [dlg, setDlg] = useState<{ type: ErpMilestoneType; action: 'confirm' | 'reverse' } | null>(null);
   const [ref, setRef] = useState('');
@@ -297,7 +306,7 @@ export function ErpPanel({ p, canConfirm, onChanged }: { p: DocumentPackageView;
         <table className="tbl tbl-wrap min-w-[760px]">
           <thead><tr>
             <th scope="col">Step</th><th scope="col">Status</th><th scope="col">DataMan Ref.</th><th scope="col">Checked by / entered</th>
-            {canConfirm && tracked && <th scope="col"><span className="sr-only">Action</span></th>}
+            {tracked && <th scope="col"><span className="sr-only">Action</span></th>}
           </tr></thead>
           <tbody>
             {ERP_ORDER.map((type, idx) => {
@@ -322,13 +331,14 @@ export function ErpPanel({ p, canConfirm, onChanged }: { p: DocumentPackageView;
                       </>
                     ) : canConfirm && tracked && !prevOk ? <span className="text-muted">After “{erpMilestoneMeta[ERP_ORDER[idx - 1] ?? m.type].short}”</span> : '—'}
                   </td>
-                  {canConfirm && tracked && (
+                  {tracked && canDo(type) && (
                     <td className="w-0 text-right align-top">
                       {m.status === 'pending'
                         ? <Button size="sm" variant="secondary" disabled={!prevOk || !!w.busy} onClick={() => open(type, 'confirm')} title={prevOk ? undefined : 'Confirm the previous milestone first'}>Confirm</Button>
                         : <Button size="sm" variant="ghost" className="!text-problem hover:!decoration-problem" disabled={nextConfirmed || !!w.busy} onClick={() => open(type, 'reverse')} title={nextConfirmed ? 'Reverse the later milestone first' : undefined}>Reverse</Button>}
                     </td>
                   )}
+                  {tracked && !canDo(type) && <td className="w-0" />}
                 </tr>
               );
             })}
@@ -340,7 +350,7 @@ export function ErpPanel({ p, canConfirm, onChanged }: { p: DocumentPackageView;
         <div className="mt-6">
           <div className="flex flex-wrap items-baseline justify-between gap-2">
             <p className="text-[16px] font-semibold">Plant Head reminders <span className="font-normal text-muted">· logged here only, nothing is sent</span></p>
-            {canConfirm && <Button size="sm" variant="ghost" onClick={() => { setRemindNote(''); w.setError(null); setRemind(true); }}>Log reminder</Button>}
+            {(canDo('plant_head_grn_approval')) && <Button size="sm" variant="ghost" onClick={() => { setRemindNote(''); w.setError(null); setRemind(true); }}>Log reminder</Button>}
           </div>
           {p.reminders.length > 0 && (
             <ul className="mt-2 border-t border-rule text-[15px]">

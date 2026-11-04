@@ -5,7 +5,7 @@
  * Swapping adapters must not change UI state meaning (17 §5).
  */
 import type {
-  AccountingAction, AttachFileInput, ChangePasswordInput, CorrectVisitInput, CreatedUser, CreatePackageInput, CreateReceivingVisitInput, CreateUserInput,
+  AccountingAction, AccountingChecks, AttachFileInput, ChangePasswordInput, CorrectVisitInput, CreatedUser, CreatePackageInput, CreateReceivingVisitInput, CreateUserInput,
   DocCategory, DocumentPackageView, ErpMilestoneInput, OverviewData, Page, QcInspection, QcQueueItem,
   QcDecisionInput, QcSubmitInput, ReceivingVisit, RecordExitInput, RecordGrnInput, RecordTareInput,
   ReferenceData, TemporaryPasswordResult, TimelineEvent, UpdatePackageInput, UpdateUserInput, User, VisitListQuery,
@@ -73,6 +73,16 @@ export interface ReceivingApi {
   sendReminder(id: string, note: string, opts: VersionedWrite): Promise<DocumentPackageView>;
   /** Accounting workflow actions: start, hand over, approve, post, return, correct (upgrade 2026-11-03). */
   accountingAction(id: string, action: AccountingAction, opts: VersionedWrite): Promise<DocumentPackageView>;
+  /**
+   * Record the three accountant-review checks for a package (accounting.review).
+   * Called while the package is with the Accountant (with_accounting).
+   */
+  recordAccountingChecks(id: string, checks: AccountingChecks, opts: WriteOptions): Promise<DocumentPackageView>;
+  /**
+   * Packages currently with the Head Accountant (with_head_accountant) plus those approved
+   * but not yet posted (accounting_approved) — the Head Accountant's working set.
+   */
+  headAccountantCases(): Promise<DocumentPackageView[]>;
   /**
    * URL the PDF viewer loads for a stored file, or null when no content is available.
    * http: `${base}/document-files/{id}/content` (same-origin, cookie-authorised, server checks access).

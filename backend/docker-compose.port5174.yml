@@ -1,0 +1,54 @@
+# KPMPL - dev stack with web exposed on host 5174 (maps to container 5173)
+name: kpmpl-port5174
+
+services:
+  postgres:
+    extends:
+      file: docker-compose.yml
+      service: postgres
+    ports:
+      - "55432:5432"
+
+  redis:
+    extends:
+      file: docker-compose.yml
+      service: redis
+
+  minio:
+    extends:
+      file: docker-compose.yml
+      service: minio
+
+  clamav:
+    extends:
+      file: docker-compose.yml
+      service: clamav
+
+  migrate:
+    extends:
+      file: docker-compose.yml
+      service: migrate
+
+  api:
+    extends:
+      file: docker-compose.yml
+      service: api
+    environment:
+      WEB_ORIGIN: "http://localhost:5173,http://localhost:5174"
+      COOKIE_SECURE: "true"
+
+  web:
+    extends:
+      file: docker-compose.yml
+      service: web
+    ports:
+      - "5174:5173"
+    environment:
+      VITE_API_BASE_URL: "http://localhost:3000/api/v1"
+      WEB_ORIGIN: "http://localhost:5173,http://localhost:5174"
+
+volumes:
+  pgdata:
+  redisdata:
+  miniodata:
+  clamdata:

@@ -157,7 +157,7 @@ export function buildFixtures(): MockDb {
         item('supporting_bill', { state: 'not_applicable', notApplicableReason: 'Demo: no separate supporting bill for this load.' }),
         item('eway_bill', { state: 'not_applicable', notApplicableReason: 'Not needed for this load (sample).' }),
       ],
-      submittedBy: 'Demo Document Authority', submittedAt: ago(50), corrections: [], erp: pkg1Erp, reminders: [], accounting: null,
+      submittedBy: 'Demo Document Authority', submittedAt: ago(50), corrections: [], erp: pkg1Erp, reminders: [], accounting: null, accountingChecks: [],
       history: [
         { id: 'p1', at: ago(58), actor: 'Demo Gate User', action: 'Package created', detail: 'Linked DEMO-GATE-0001.', source: 'app' },
         { id: 'p2', at: ago(55), actor: 'Demo Gate User', action: 'Marked ready for authority check', source: 'app' },
@@ -174,7 +174,7 @@ export function buildFixtures(): MockDb {
         item('supplier_invoice', { state: 'attached', files: [f('demo-file-06', 'DEMO-INV-0102.pdf', 25)] }),
         item('factory_grn'), item('weighbridge_slip'), item('qc_slip'), item('supporting_bill'), item('eway_bill'),
       ],
-      submittedBy: null, submittedAt: null, corrections: [], erp: erpPending(), reminders: [], accounting: null,
+      submittedBy: null, submittedAt: null, corrections: [], erp: erpPending(), reminders: [], accounting: null, accountingChecks: [],
       history: [{ id: 'p6', at: ago(25), actor: 'Demo Gate User', action: 'Package created', detail: 'Linked DEMO-GATE-0004. GRN not yet recorded.', source: 'app' }],
       createdBy: 'Demo Gate User', createdAt: ago(25), updatedAt: ago(25), version: 2,
     },
@@ -189,7 +189,7 @@ export function buildFixtures(): MockDb {
         item('supporting_bill', { state: 'not_applicable', notApplicableReason: 'Demo: included in the supplier invoice.' }),
         item('eway_bill', { state: 'not_applicable', notApplicableReason: 'Demo: not required for this load.' }),
       ],
-      submittedBy: 'Demo Document Authority', submittedAt: ago(110), corrections: [], erp: erpPending(), reminders: [], accounting: null,
+      submittedBy: 'Demo Document Authority', submittedAt: ago(110), corrections: [], erp: erpPending(), reminders: [], accounting: null, accountingChecks: [],
       history: [
         { id: 'p7', at: ago(120), actor: 'Demo Gate User', action: 'Package created', detail: 'Linked DEMO-GATE-0005.', source: 'app' },
         { id: 'p8', at: ago(118), actor: 'Demo Gate User', action: 'Marked ready for authority check', source: 'app' },

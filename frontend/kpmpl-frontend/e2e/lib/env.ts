@@ -7,7 +7,7 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 
-export type RoleCode = 'gate' | 'gate_doc' | 'qc' | 'ho' | 'admin';
+export type RoleCode = 'gate' | 'gate_doc' | 'gate_doc_authority' | 'qc' | 'ho' | 'accountant' | 'head_accountant' | 'admin';
 
 export interface DemoUser {
   username: string;

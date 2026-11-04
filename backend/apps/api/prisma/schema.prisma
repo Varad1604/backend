@@ -72,6 +72,7 @@ model User {
   erpMilestones ErpMilestone[]
   reminders Reminder[]
   accountingStarted AccountingRecord[] @relation("AccountingStarter")
+  accountingChecks AccountingCheck[] @relation("AccountingChecker")
   accountingSubmitted AccountingRecord[] @relation("AccountingSubmitter")
   accountingApproved AccountingRecord[] @relation("AccountingApprover")
   accountingPosted AccountingRecord[] @relation("AccountingPoster")
@@ -317,6 +318,7 @@ model DocumentPackage {
   history              PackageHistory[]
   accounting           AccountingRecord?
   accountingCorrections AccountingCorrection[]
+  accountingChecks    AccountingCheck[]
 
   @@index([status, updatedAt])
 }
@@ -432,6 +434,25 @@ model AccountingCorrection {
   package     DocumentPackage @relation(fields: [packageId], references: [id], onDelete: Restrict)
   corrector   User @relation(fields: [correctedBy], references: [id], onDelete: Restrict)
   @@index([packageId, correctedAt])
+}
+
+// Accounting review checks recorded by the Accountant before handing over to the Head Accountant.
+// One record per package; upserted by POST /accounting/cases/{id}/checks.
+model AccountingCheck {
+  id         String   @id @default(uuid()) @db.Uuid
+  packageId  String   @unique @db.Uuid
+  billPassed Boolean  @default(false) @map("bill_passed")
+  gstChecked Boolean  @default(false) @map("gst_checked")
+  tdsChecked Boolean  @default(false) @map("tds_checked")
+  checkedBy  String   @db.Uuid @map("checked_by")
+  checkedAt  DateTime @default(now()) @map("checked_at")
+  billCheck  Json?    @map("bill_check")
+  gstCheck   Json?    @map("gst_check")
+  tdsCheck   Json?    @map("tds_check")
+  package    DocumentPackage @relation(fields: [packageId], references: [id], onDelete: Restrict)
+  checker    User         @relation("AccountingChecker", fields: [checkedBy], references: [id], onDelete: Restrict)
+
+  @@map("accounting_checks")
 }
 
 model ReferenceValue {

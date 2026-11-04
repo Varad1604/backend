@@ -32,7 +32,7 @@ const ACCOUNTS = [
   { username: 'demo-docs', displayName: 'Demo Document Authority', role: 'gate_doc' },
   { username: 'demo-ho', displayName: 'Demo HO User', role: 'ho' },
   { username: 'demo-accountant', displayName: 'Demo Accountant', role: 'accountant' },
-  { username: 'demo-head-act', displayName: 'Demo Head Accountant', role: 'head_accountant' },
+  { username: 'demo-headacc', displayName: 'Demo Head Accountant', role: 'head_accountant' },
   { username: 'demo-admin', displayName: 'Demo Admin', role: 'admin' },
 ] as const;
 
@@ -42,7 +42,7 @@ async function seedUsers(): Promise<Map<string, string>> {
   for (const account of ACCOUNTS) {
     const user = await prisma.user.upsert({
       where: { employeeCode: account.username },
-      update: { fullName: account.displayName, isActive: true, synthetic: true },
+      update: { fullName: account.displayName, passwordHash, mustChangePassword: false, isActive: true, synthetic: true },
       create: { id: randomUUID(), employeeCode: account.username, fullName: account.displayName, passwordHash, mustChangePassword: false, synthetic: true, isActive: true },
     });
     ids.set(account.username, user.id);
@@ -240,7 +240,7 @@ async function main(): Promise<void> {
   const ids = await seedVisits(users.get('demo-gate')!);
   await seedTimeline(ids, users.get('demo-gate')!);
   await seedPackages(ids, users.get('demo-gate')!);
-  console.log('Demo seed loaded: 7 users (demo-gate, demo-qc, demo-docs, demo-ho, demo-accountant, demo-head-act, demo-admin), 5 visits, 3 packages.');
+  console.log('Demo seed loaded: 7 users (demo-gate, demo-qc, demo-docs, demo-ho, demo-accountant, demo-headacc, demo-admin), 5 visits, 3 packages.');
 }
 
 void main().then(() => prisma.$disconnect()).catch(async error => { console.error('Demo seed failed:', error); await prisma.$disconnect(); process.exitCode = 1; });

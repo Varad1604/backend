@@ -1,10 +1,7 @@
-# Generated copy of the backend OpenAPI contract (backend/packages/contracts/openapi/openapi.yaml,
-# backend branch integration/phase-1-backend-contract, regenerated for Phase 1 alignment).
-# Update it only by re-copying from the backend repo so both sides stay identical.
 openapi: 3.1.0
 info:
   title: KPMPL Gate-to-Bill API
-  version: 1.2.0
+  version: 1.1.0
   summary: Shared API for the KPMPL web application and future Android/iOS clients.
   description: |
     Contract snapshot v1.1.0 — Phase 1 frontend<->backend alignment
@@ -426,6 +423,53 @@ paths:
             X-Content-Type-Options: { schema: { const: nosniff } }
             Cache-Control: { schema: { const: 'private, no-store' } }
         '404': { $ref: '#/components/responses/Error' }
+  /document-packages/{id}/accounting:
+    parameters: [{ $ref: '#/components/parameters/VisitId' }]
+    post:
+      tags: [accounting]
+      summary: Accounting workflow action (accounting.review / accounting.approve / accounting.post; upgrade 2026-11-03)
+      parameters:
+        - { $ref: '#/components/parameters/IdempotencyKey' }
+        - { $ref: '#/components/parameters/IfMatch' }
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/AccountingAction' } } }
+      responses:
+        '200': { $ref: '#/components/responses/PackageView' }
+        '422': { $ref: '#/components/responses/Error' }
+  /accounting/cases/{id}/checks:
+    parameters: [{ $ref: '#/components/parameters/VisitId' }]
+    post:
+      tags: [accounting]
+      summary: Record the three accountant-review checks for a package (accounting.review)
+      parameters:
+        - { $ref: '#/components/parameters/IdempotencyKey' }
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/AccountingChecks' } } }
+      responses:
+        '200': { $ref: '#/components/responses/PackageView' }
+        '422': { $ref: '#/components/responses/Error' }
+  /accounting/cases/{id}/actions:
+    parameters: [{ $ref: '#/components/parameters/VisitId' }]
+    post:
+      tags: [accounting]
+      summary: Accounting workflow action at the accounting-cases URL (mirrors POST /document-packages/{id}/accounting)
+      parameters:
+        - { $ref: '#/components/parameters/IdempotencyKey' }
+        - { $ref: '#/components/parameters/IfMatch' }
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/AccountingAction' } } }
+      responses:
+        '200': { $ref: '#/components/responses/PackageView' }
+        '422': { $ref: '#/components/responses/Error' }
+  /head-accountant/cases:
+    get:
+      tags: [accounting]
+      summary: Packages for the Head Accountant (with_head_accountant + accounting_approved), updatedAt DESC
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { type: object, required: [data], properties: { data: { type: array, items: { $ref: '#/components/schemas/DocumentPackageView' } } } } } } }
   /head-office/cases:
     get:
       tags: [head-office]
@@ -473,26 +517,6 @@ paths:
       responses:
         '200': { $ref: '#/components/responses/PackageView' }
         '422': { $ref: '#/components/responses/Error' }
-  /accounting/queue:
-    get:
-      tags: [accounting]
-      summary: Packages from HO verification onward (accounting.inbox), updatedAt DESC
-      responses:
-        '200': { description: OK, content: { application/json: { schema: { type: object, required: [data], properties: { data: { type: array, items: { $ref: '#/components/schemas/DocumentPackageView' } } } } } } }
-  /document-packages/{id}/accounting:
-    parameters: [{ name: id, in: path, required: true, schema: { type: string, format: uuid } }]
-    post:
-      tags: [accounting]
-      summary: Accounting workflow action (accounting.review / approve / post; upgrade 2026-11-03)
-      parameters:
-        - { $ref: '#/components/parameters/IdempotencyKey' }
-        - { $ref: '#/components/parameters/IfMatch' }
-      requestBody:
-        required: true
-        content: { application/json: { schema: { $ref: '#/components/schemas/AccountingAction' } } }
-      responses:
-        '200': { $ref: '#/components/responses/PackageView' }
-        '422': { $ref: '#/components/responses/Error' }
 components:
   securitySchemes:
     cookieAuth: { type: apiKey, in: cookie, name: __Host-kpmpl_sid }
@@ -524,7 +548,7 @@ components:
       description: Component report
       content: { application/json: { schema: { type: object, required: [status, checks], properties: { status: { type: string, enum: [ok, unavailable] }, checks: { type: object } } } } }
   schemas:
-    RoleCode: { type: string, enum: [gate, gate_doc, qc, ho, accountant, head_accountant, admin] }
+    RoleCode: { type: string, enum: [gate, gate_doc, gate_doc_authority, qc, ho, accountant, head_accountant, admin] }
     QcStatus: { type: string, enum: [pending, in_progress, submitted, returned, accepted, accepted_with_deduction, rejected] }
     ExitStatus: { type: string, enum: [on_premises, exited] }
     GrnStatus: { type: string, enum: [not_recorded, reference_recorded] }
@@ -765,49 +789,13 @@ components:
           items: { $ref: '#/components/schemas/ErpMilestone' }
         reminders: { type: array, items: { $ref: '#/components/schemas/Reminder' } }
         history: { type: array, items: { $ref: '#/components/schemas/TimelineEvent' } }
-        accounting: { oneOf: [{ $ref: '#/components/schemas/AccountingInfo' }, { type: 'null' }] }
         createdBy: { type: string }
         createdAt: { type: string, format: date-time }
         updatedAt: { type: string, format: date-time }
         version: { type: integer }
+        accounting: { oneOf: [{ $ref: '#/components/schemas/AccountingInfo' }, { type: 'null' }] }
+        accountingChecks: { type: array, items: { $ref: '#/components/schemas/AccountingCheckEntry' } }
         visits: { type: array, items: { $ref: '#/components/schemas/ReceivingVisit' } }
-    AccountingInfo:
-      type: object
-      required: [stage, accountingRef, accountantNote, headAccountantNote, startedBy, startedAt, submittedBy, submittedAt, approvedBy, approvedAt, postedBy, postedAt, corrections]
-      properties:
-        stage: { type: string, enum: [with_accountant, with_head_accountant, approved, posted] }
-        accountingRef: { type: [string, 'null'] }
-        accountantNote: { type: [string, 'null'] }
-        headAccountantNote: { type: [string, 'null'] }
-        startedBy: { type: string }
-        startedAt: { type: string, format: date-time }
-        submittedBy: { type: [string, 'null'] }
-        submittedAt: { type: [string, 'null'], format: date-time }
-        approvedBy: { type: [string, 'null'] }
-        approvedAt: { type: [string, 'null'], format: date-time }
-        postedBy: { type: [string, 'null'] }
-        postedAt: { type: [string, 'null'], format: date-time }
-        corrections:
-          type: array
-          items:
-            type: object
-            required: [id, field, oldValue, newValue, reason, correctedBy, correctedAt]
-            properties:
-              id: { type: string }
-              field: { type: string, enum: [accountingRef, accountantNote, headAccountantNote] }
-              oldValue: { type: [string, 'null'] }
-              newValue: { type: [string, 'null'] }
-              reason: { type: string }
-              correctedBy: { type: string }
-              correctedAt: { type: string, format: date-time }
-    AccountingAction:
-      oneOf:
-        - { type: object, required: [kind], properties: { kind: { const: start_accounting } }, additionalProperties: false }
-        - { type: object, required: [kind, confirmComplete], properties: { kind: { const: submit_to_head_accountant }, confirmComplete: { const: true }, accountantNote: { type: string, maxLength: 1000 } }, additionalProperties: false }
-        - { type: object, required: [kind, reason], properties: { kind: { const: return_to_accountant }, reason: { type: string, minLength: 1, maxLength: 1000 } }, additionalProperties: false }
-        - { type: object, required: [kind], properties: { kind: { const: approve_accounting }, headAccountantNote: { type: string, maxLength: 1000 } }, additionalProperties: false }
-        - { type: object, required: [kind, billRef], properties: { kind: { const: post_bill }, billRef: { type: string, minLength: 1, maxLength: 40 }, note: { type: string, maxLength: 500 } }, additionalProperties: false }
-        - { type: object, required: [kind, field, value, reason], properties: { kind: { const: correct_accounting }, field: { type: string, enum: [accountingRef, accountantNote, headAccountantNote] }, value: { type: string, maxLength: 1000 }, reason: { type: string, minLength: 1, maxLength: 500 } }, additionalProperties: false }
     PackageAction:
       oneOf:
         - { type: object, required: [kind], properties: { kind: { const: mark_ready } }, additionalProperties: false }
@@ -816,6 +804,52 @@ components:
         - { type: object, required: [kind], properties: { kind: { const: start_review } }, additionalProperties: false }
         - { type: object, required: [kind, reason, categories], properties: { kind: { const: request_correction }, reason: { type: string, maxLength: 1000 }, categories: { type: array, minItems: 1, items: { $ref: '#/components/schemas/DocCategory' } } }, additionalProperties: false }
         - { type: object, required: [kind], properties: { kind: { const: verify } }, additionalProperties: false }
+    AccountingAction:
+      oneOf:
+        - { type: object, required: [kind], properties: { kind: { const: start_accounting } }, additionalProperties: false }
+        - { type: object, required: [kind, confirmComplete], properties: { kind: { const: submit_to_head_accountant }, confirmComplete: { const: true }, accountantNote: { type: string, maxLength: 1000 } }, additionalProperties: false }
+        - { type: object, required: [kind, reason, failedChecks], properties: { kind: { const: return_to_ho }, reason: { type: string, minLength: 1, maxLength: 1000 }, failedChecks: { type: array, minItems: 1, items: { type: string, enum: [bill_passed, gst_checked, tds_checked] } } }, additionalProperties: false }
+        - { type: object, required: [kind, reason], properties: { kind: { const: return_to_accountant }, reason: { type: string, minLength: 1, maxLength: 1000 } }, additionalProperties: false }
+        - { type: object, required: [kind], properties: { kind: { const: approve_accounting }, headAccountantNote: { type: string, maxLength: 1000 } }, additionalProperties: false }
+        - { type: object, required: [kind, billRef], properties: { kind: { const: post_bill }, billRef: { type: string, minLength: 1, maxLength: 40 }, note: { type: string, maxLength: 500 } }, additionalProperties: false }
+        - { type: object, required: [kind, field, value, reason], properties: { kind: { const: correct_accounting }, field: { type: string, enum: [accountingRef, accountantNote, headAccountantNote] }, value: { type: string, maxLength: 1000 }, reason: { type: string, minLength: 1, maxLength: 500 } }, additionalProperties: false }
+    AccountingChecks:
+      type: object
+      required: [checks]
+      properties:
+        checks:
+          type: array
+          minItems: 3
+          maxItems: 3
+          items:
+            type: object
+            required: [type, status]
+            additionalProperties: false
+            properties:
+              type: { type: string, enum: [bill_passed, gst_checked, tds_checked] }
+              status: { type: string, enum: [pending, ok, issue] }
+              note: { type: string, maxLength: 500 }
+              checkedBy: { type: string, format: uuid }
+              checkedAt: { type: string, format: date-time }
+    AccountingInfo:
+      type: object
+      required: [status, accountingRef, accountantNote, headAccountantNote, billRef, postedAt]
+      properties:
+        status: { $ref: '#/components/schemas/PackageStatus' }
+        accountingRef: { type: [string, 'null'] }
+        accountantNote: { type: [string, 'null'] }
+        headAccountantNote: { type: [string, 'null'] }
+        billRef: { type: [string, 'null'] }
+        postedAt: { type: [string, 'null'], format: date-time }
+    AccountingCheckEntry:
+      type: object
+      required: [type, status, checkedBy, checkedAt]
+      properties:
+        type: { type: string, enum: [bill_passed, gst_checked, tds_checked] }
+        status: { type: string, enum: [pending, ok, issue] }
+        note: { type: [string, 'null'] }
+        checkedBy: { type: string }
+        checkedAt: { type: string, format: date-time }
     Error:
       type: object
       required: [error]
@@ -829,3 +863,10 @@ components:
             fields: { type: object, additionalProperties: { type: string } }
             requestId: { type: string }
             meta: { type: object }
+
+  /admin/dashboard:
+    get:
+      tags: [admin]
+      summary: Admin dashboard (admin.users)
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { type: object, required: [data], properties: { data: { type: object } } } } } }

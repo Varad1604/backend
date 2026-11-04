@@ -63,6 +63,19 @@ test('journey 1 — gate entry: new receiving saved, survives reload, lands in Q
   await expect(page.getByText(vehicleNo).first()).toBeVisible();
 });
 
+test('journey 1 duplicate — returns to Gate Entry No. with an actionable existing-entry link', async () => {
+  const page = await roles.page('gate');
+  await page.goto('/#/receiving/new');
+  await fillNewTruck(page, { ref: gateRef, vehicle: uniqueVehicle(), supplier, gross });
+  await page.getByRole('button', { name: 'Save and send to QC' }).click();
+
+  const duplicateAlert = page.getByRole('alert').filter({ hasText: 'Possible duplicate' }).first();
+  await expect(duplicateAlert).toBeVisible();
+  await expect(page.getByLabel('Gate Entry No.')).toBeVisible();
+  await expect(duplicateAlert).toContainText(`A receiving visit with Gate Entry Number ${gateRef} already exists`);
+  await expect(duplicateAlert.getByRole('link', { name: 'Open the existing entry' })).toHaveAttribute('href', /#?\/receiving\//);
+});
+
 test('journey 2 — QC: draft persists across reload, submit reaches Gate', async () => {
   const page = await roles.page('qc');
   await page.goto('/#/qc');
@@ -156,7 +169,7 @@ test('journey 4 — tare, physical exit and GRN with reload persistence', async 
 });
 
 test('journey 5 — document package: build checklist, attach PDFs, mark ready', async () => {
-  const page = await roles.page('gate');
+  const page = await roles.page('gate_doc');
   await page.goto('/#/documents/new');
   await expect(page.getByRole('heading', { name: 'New document package' })).toBeVisible();
   await page.getByLabel(`Select ${gateRef}`).check();
@@ -247,15 +260,17 @@ test('journey 7 — HO review: start, check each document, verify, open the priv
 });
 
 test('journey 8 — ERP milestones: confirm plant head approval, voucher, posting', async () => {
-  const page = await roles.page('ho');
-  // The DataMan milestones panel lives on the HO review page — work there directly.
-  await page.goto(`/#/head-office/${packageId}`);
-  await expect(page.getByRole('heading', { name: packageRef })).toBeVisible();
-
   const refs = [grnRef, uniqueRef('DEMO-VCH'), uniqueRef('DEMO-POST')];
-  const dialogTitles = ['Plant Head approval', 'Voucher', 'Posting'];
   const fieldLabels = ['Approved GRN No.', 'Voucher No.', 'Posting Ref.'];
+  const steps = [
+    { role: 'gate_doc' as const, path: `/#/documents/${packageId}` },
+    { role: 'ho' as const, path: `/#/head-office/${packageId}` },
+    { role: 'head_accountant' as const, path: `/#/accounting/${packageId}` },
+  ];
   for (let i = 0; i < 3; i++) {
+    const page = await roles.page(steps[i]!.role);
+    await page.goto(steps[i]!.path);
+    await expect(page.getByRole('heading', { name: packageRef })).toBeVisible();
     await page.getByRole('button', { name: 'Confirm', exact: true }).first().click();
     const dialog = page.getByRole('dialog', { name: new RegExp(`Confirm:`) });
     await expect(dialog).toBeVisible();
@@ -273,6 +288,8 @@ test('journey 8 — ERP milestones: confirm plant head approval, voucher, postin
 
   // All three milestones confirmed — reload keeps the ERP state, and the milestones
   // overview lists the package.
+  const page = await roles.page('ho');
+  await page.goto(`/#/head-office/${packageId}`);
   await page.reload();
   await expect(page.getByText('Confirmed').first()).toBeVisible();
   await page.goto('/#/erp-milestones');

@@ -303,8 +303,10 @@ export class DocumentsService {
       return { status: 200, body: json({ data: await this.present(tx, input.packageId) }) };
     });
   }
-  erp(actor: Actor, id: string, key: string, version: number, input: { type: (typeof milestones)[number]; action: 'confirm'|'reverse'; dataManRef?: string; erpOccurredAt?: string; note?: string; verifiedInDataManByStaff: boolean }) {
-    return this.writes.run(actor, 'erp.confirm', `/head-office/cases/${id}/erp-milestones`, key, { version, ...input }, async (tx, current) => {
+  async erp(actor: Actor, id: string, key: string, version: number, input: { type: (typeof milestones)[number]; action: 'confirm'|'reverse'; dataManRef?: string; erpOccurredAt?: string; note?: string; verifiedInDataManByStaff: boolean }, url = `/head-office/cases/${id}/erp-milestones`) {
+    const required = input.type === 'plant_head_grn_approval' ? 'erp.plant_head_approval' : input.type === 'purchase_voucher' ? 'erp.purchase_voucher' : 'erp.final_posting';
+    await this.auth.authorize(actor, required);
+    return this.writes.run(actor, required, url, key, { version, ...input }, async (tx, current) => {
       const before = await this.row(tx, id); if (!HO_VISIBLE.includes(before.status)) throw new NotFoundException(); await this.claim(tx, id, version);
       const index = milestones.indexOf(input.type); const currentMilestone = before.erp.find(item => item.type === input.type)!;
       if (input.action === 'confirm') {
@@ -330,8 +332,9 @@ export class DocumentsService {
       return { status: 200, body: json({ data: await this.present(tx, id), message: 'Manually confirmed by staff (not an ERP feed)' }) };
     });
   }
-  reminder(actor: Actor, id: string, key: string, version: number, note: string) {
-    return this.writes.run(actor, 'erp.confirm', `/head-office/cases/${id}/reminders`, key, { version, note }, async (tx, current) => {
+  async reminder(actor: Actor, id: string, key: string, version: number, note: string) {
+    await this.auth.authorize(actor, 'erp.plant_head_approval');
+    return this.writes.run(actor, 'erp.plant_head_approval', `/head-office/cases/${id}/reminders`, key, { version, note }, async (tx, current) => {
       const before = await this.row(tx, id);
       // R-21: in-app record only, and only while Plant Head approval is pending.
       if (!HO_VISIBLE.includes(before.status)) throw new NotFoundException();
@@ -356,7 +359,7 @@ export class DocumentsService {
   /** HO → Accountant → Head Accountant → Bill Posted. Every write: claim version, one transaction, audit + history. */
   accounting(actor: Actor, id: string, key: string, version: number, input: AccountingAction) {
     const capability: Capability = input.kind === 'post_bill' ? 'accounting.post'
-      : input.kind === 'return_to_accountant' || input.kind === 'approve_accounting' ? 'accounting.approve'
+      : input.kind === 'return_to_accountant' || input.kind === 'approve_accounting' || input.kind === 'return_to_ho' ? 'accounting.approve'
       : 'accounting.review';
     return this.writes.run(actor, capability, `/document-packages/${id}/accounting`, key, { version, ...input }, async (tx, current) => {
       const before = await this.row(tx, id);
@@ -389,6 +392,13 @@ export class DocumentsService {
         await tx.accountingRecord.update({ where: { packageId: id }, data: { stage: 'with_accountant' } });
         await tx.documentPackage.update({ where: { id }, data: { status: 'with_accounting' } });
         detail = input.reason.trim();
+      }
+
+      if (input.kind === 'return_to_ho') {
+        if (status !== 'with_head_accountant' && status !== 'accounting_approved') throw domain('Only a package with the Head Accountant can be returned to Head Office.');
+        await tx.accountingRecord.update({ where: { packageId: id }, data: { stage: 'with_accountant' } });
+        await tx.documentPackage.update({ where: { id }, data: { status: 'verified' } });
+        detail = `Returned to Head Office: ${input.reason.trim()} (failed: ${(input as any).failedChecks?.join(', ')})`;
       }
 
       if (input.kind === 'approve_accounting') {
@@ -438,6 +448,8 @@ export class DocumentsService {
       await this.history(tx, id, current.userId, input.kind, detail);
       if (input.kind === 'return_to_accountant') {
         await this.audit.append(tx, { entityType: 'DocumentPackage', entityId: id, actorId: current.userId, action: input.kind, reason: input.reason, oldValue: { status }, newValue: { status: 'with_accounting' } });
+      } else if (input.kind === 'return_to_ho') {
+        await this.audit.append(tx, { entityType: 'DocumentPackage', entityId: id, actorId: current.userId, action: input.kind, reason: (input as any).reason, oldValue: { status }, newValue: { status: 'verified' } });
       } else {
         await this.audit.append(tx, { entityType: 'DocumentPackage', entityId: id, actorId: current.userId, action: input.kind, oldValue: { status }, newValue: { status: input.kind === 'start_accounting' ? 'with_accounting' : input.kind === 'submit_to_head_accountant' ? 'with_head_accountant' : 'accounting_approved' } });
       }
@@ -490,4 +502,48 @@ export class DocumentsService {
     if (!gate && !ho && !acct) throw new NotFoundException();
     const body = await this.storage.get(file.storageKey); if (!body) throw new NotFoundException(); return { body: Buffer.from(body), filename: file.originalName };
   }
+  /**
+   * Record accounting checks for a document package.
+   * Capability: accounting.review
+   * Upserts check entries so a package can be re-checked.
+   */
+  async recordAccountingChecks(actor: Actor, id: string, body: any) {
+    const now = new Date();
+    const tx = await this.prisma.$transaction(async (tx) => {
+      for (const check of body.checks) {
+        const existing = await tx.accountingCheck.findFirst({
+          where: { packageId: id },
+        });
+        if (existing) {
+          await tx.accountingCheck.update({
+            where: { id: existing.id },
+            data: { ...check, checkedBy: actor.userId, checkedAt: now },
+          });
+        } else {
+          await tx.accountingCheck.create({
+            data: { packageId: id, ...check, checkedBy: actor.userId, checkedAt: now },
+          });
+        }
+      }
+      await tx.packageHistory.create({
+        data: { packageId: id, actorId: actor.userId, action: 'accounting_checks_recorded', detail: 'Checks recorded via API', source: 'app' },
+      });
+      return { status: 200, body: json({ data: await this.present(tx, id) }) };
+    });
+    return tx;
+  }
+
+  async headAccountantCases(actor: Actor) {
+    const cases = await this.prisma.documentPackage.findMany({
+      where: {
+        OR: [
+          { status: 'ready_for_gate_check' },
+          { status: 'ready_for_ho_check' },
+          { status: 'ready_for_accounting_check' },
+        ],
+      },
+    });
+    return cases;
+  }
+
 }

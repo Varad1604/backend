@@ -12,7 +12,7 @@
 export type Iso8601 = string;
 export type DecimalString = string;
 
-export type RoleCode = 'gate' | 'gate_doc' | 'qc' | 'ho' | 'accountant' | 'head_accountant' | 'admin';
+export type RoleCode = 'gate' | 'gate_doc' | 'gate_doc_authority' | 'qc' | 'ho' | 'accountant' | 'head_accountant' | 'admin';
 
 export interface User {
   id: string;
@@ -215,6 +215,31 @@ export interface QcDecisionInput {
   reason: string;
 }
 
+/* ---------------- Accounting checks (upgrade 2026-11-03) ---------------- */
+
+export type AccountingCheckStatus = 'pending' | 'ok' | 'issue';
+
+/** Per-check state for the accountant review. Each check has its own status, note and author. */
+export interface AccountingCheck {
+  type: 'bill_passed' | 'gst_checked' | 'tds_checked';
+  status: AccountingCheckStatus;
+  note: string | null;
+  checkedBy: string | null;
+  checkedAt: Iso8601 | null;
+}
+
+export interface AccountingChecks {
+  checks: AccountingCheck[];
+}
+
+/** One entry in the accountant-review checks list on a package view. */
+export interface AccountingCheckEntry {
+  id: string;
+  checks: AccountingCheck[];
+  checkedBy: string;
+  checkedAt: Iso8601;
+}
+
 /* ---------------- Overview (SCR-09) ---------------- */
 
 export interface OverviewData {
@@ -325,6 +350,8 @@ export interface DocumentPackage {
   history: TimelineEvent[];
   /** Present once accounting has started on a verified package; null before that. */
   accounting: AccountingInfo | null;
+  /** Accountant-review checks recorded while the package is with the Accountant. */
+  accountingChecks: AccountingCheckEntry[];
   createdBy: string;
   createdAt: Iso8601;
   updatedAt: Iso8601;
@@ -375,6 +402,7 @@ export interface AccountingInfo {
 export type AccountingAction =
   | { kind: 'start_accounting' }
   | { kind: 'submit_to_head_accountant'; confirmComplete: boolean; accountantNote?: string }
+  | { kind: 'return_to_ho'; reason: string; failedChecks: string[] }
   | { kind: 'return_to_accountant'; reason: string }
   | { kind: 'approve_accounting'; headAccountantNote?: string }
   /** billRef is the bill reference as typed (opaque). Duplicate posting is refused server-side. */

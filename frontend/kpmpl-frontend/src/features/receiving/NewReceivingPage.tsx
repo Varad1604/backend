@@ -126,10 +126,12 @@ export function NewReceivingPage() {
       if (apiErr.code === 'VALIDATION_FAILED' || apiErr.code === 'DUPLICATE_CANDIDATE') {
         const mapped: Errors = {};
         for (const [k, msg] of Object.entries(apiErr.fields)) mapped[(k === 'grossWeight' ? 'gross' : k) as keyof FormValues] = msg;
+        if (apiErr.code === 'DUPLICATE_CANDIDATE') mapped.officialGateEntryRef = apiErr.message;
         setErrors(mapped);
         const first = fieldOrder.find((k) => mapped[k]);
         if (first) setStep(stepOf(first));
       }
+      window.scrollTo({ top: 0 });
     } finally {
       setSubmitting(false);
     }

@@ -4,7 +4,7 @@ import { Requires, RequiresAny } from '../identity-access/access.decorators';
 import type { AuthRequest } from '../identity-access/identity.types';
 import { idempotencyKeySchema } from '../receiving/receiving.schemas';
 import type { WriteResult } from '../platform/idempotent-write.service';
-import { accountingActionSchema, ifMatchSchema, packageIdSchema } from './document.schemas';
+import { accountingActionSchema, accountingChecksSchema, ifMatchSchema, packageIdSchema } from './document.schemas';
 import { DocumentsService } from './documents.service';
 
 function version(value: string | undefined) { return ifMatchSchema.parse(value); }
@@ -20,4 +20,27 @@ export class AccountingController {
   async action(@Param('id') id: string, @Body() body: unknown, @Headers('if-match') match: string | undefined, @Req() req: AuthRequest & FastifyRequest, @Res({ passthrough: true }) reply: FastifyReply) {
     return response(reply, await this.documents.accounting(req.actor, packageIdSchema.parse(id), key(req), version(match), accountingActionSchema.parse(body)));
   }
+
+  /** Record the three accountant-review checks for a package (accounting.review).
+   *  One check set per package; upserted so a returned package can be re-checked.
+   *  Allowed while the package is with the Accountant (with_accounting).
+   */
+  @Post('accounting/cases/:id/checks') @Requires('accounting.review')
+  async recordChecks(@Param('id') id: string, @Body() body: unknown, @Headers('if-match') _match: string | undefined, @Req() req: AuthRequest, @Res({ passthrough: true }) reply: FastifyReply) {
+    return response(reply, (await this.documents.recordAccountingChecks(req.actor, packageIdSchema.parse(id), accountingChecksSchema.parse(body))) as any);
+  }
+
+  /** Accounting workflow action at the accounting-cases URL (mirrors POST /document-packages/:id/accounting).
+   *  capability depends on kind: accounting.review / accounting.approve / accounting.post.
+   */
+  @Post('accounting/cases/:id/actions') @RequiresAny('accounting.review', 'accounting.approve', 'accounting.post')
+  async caseAction(@Param('id') id: string, @Body() body: unknown, @Headers('if-match') match: string | undefined, @Req() req: AuthRequest & FastifyRequest, @Res({ passthrough: true }) reply: FastifyReply) {
+    return response(reply, await this.documents.accounting(req.actor, packageIdSchema.parse(id), key(req), version(match), accountingActionSchema.parse(body)));
+  }
+
+  /** Packages currently with the Head Accountant (with_head_accountant) plus those approved
+   *  but not yet posted (accounting_approved) — the Head Accountant's working set (accounting.approve).
+   */
+  @Get('head-accountant/cases') @Requires('accounting.approve')
+  headAccountantCases(@Req() req: AuthRequest) { return this.documents.headAccountantCases(req.actor); }
 }

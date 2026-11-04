@@ -206,6 +206,23 @@ describe('headers', () => {
     expect(calls[1]!.headers.get('If-Match')).toBe('5');
   });
 
+  it('routes Plant Head approval through the document-authority endpoint', async () => {
+    const { api, calls } = setup([json(200, { data: { id: 'p1' } })]);
+    await api.recordErpMilestone('p1', {
+      type: 'plant_head_grn_approval', action: 'confirm', dataManRef: 'GRN-1', verifiedInDataManByStaff: true,
+    }, { idempotencyKey: 'erp-1', expectedVersion: 6 });
+    expect(calls[0]!.url).toBe('/api/v1/document-packages/p1/erp-milestones/plant-head-approval');
+    expect(calls[0]!.headers.get('If-Match')).toBe('6');
+  });
+
+  it('keeps later ERP milestones on the Head Office endpoint', async () => {
+    const { api, calls } = setup([json(200, { data: { id: 'p1' } })]);
+    await api.recordErpMilestone('p1', {
+      type: 'purchase_voucher', action: 'confirm', dataManRef: 'PV-1', verifiedInDataManByStaff: true,
+    }, { idempotencyKey: 'erp-2', expectedVersion: 7 });
+    expect(calls[0]!.url).toBe('/api/v1/head-office/cases/p1/erp-milestones');
+  });
+
   it('does not send Idempotency-Key on login or logout', async () => {
     const { api, calls } = setup([json(200, { data: { id: 'u' } }), new Response(null, { status: 204 })]);
     await api.login('demo-gate', 'pw');

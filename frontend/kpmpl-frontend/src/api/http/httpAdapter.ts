@@ -322,11 +322,19 @@ export function createHttpAdapter(deps: HttpAdapterDeps): ReceivingApi {
       // The contract's note is optional-but-not-nullable; omit the key entirely when
       // no note accompanies the check (an explicit null is rejected as invalid).
       call<DocumentPackageView>('POST', '/head-office/reviews', { json: { packageId: id, category, check, ...(note ? { note } : {}) }, ...v(o) }),
-    recordErpMilestone: (id, input, o) => call<DocumentPackageView>('POST', `/head-office/cases/${enc(id)}/erp-milestones`, { json: input, ...v(o) }),
+    recordErpMilestone: (id, input, o) => call<DocumentPackageView>(
+      'POST',
+      input.type === 'plant_head_grn_approval'
+        ? `/document-packages/${enc(id)}/erp-milestones/plant-head-approval`
+        : `/head-office/cases/${enc(id)}/erp-milestones`,
+      { json: input, ...v(o) },
+    ),
     sendReminder: (id, note, o) => call<DocumentPackageView>('POST', `/head-office/cases/${enc(id)}/reminders`, { json: { note }, ...v(o) }),
 
     /* ---- accounting workflow (upgrade 2026-11-03) ---- */
     accountingAction: (id, action, o) => call<DocumentPackageView>('POST', `/document-packages/${enc(id)}/accounting`, { json: action, ...v(o) }),
+    recordAccountingChecks: (id, checks, o) => call<DocumentPackageView>('POST', `/accounting/cases/${enc(id)}/checks`, { json: checks, idempotencyKey: o.idempotencyKey }),
+    headAccountantCases: () => call<DocumentPackageView[]>('GET', '/head-accountant/cases'),
   };
 }
 

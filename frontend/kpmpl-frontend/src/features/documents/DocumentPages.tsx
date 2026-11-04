@@ -15,7 +15,7 @@ import { relativeAge } from '../../lib/format';
 import { Card, ListCard, ListToolbar, PageHeader, TableWrap, ViewLink } from '../../components/ui/Layout';
 import { StatusLine } from '../../components/ui/StatusTag';
 import { Tabs } from '../../components/ui/Tabs';
-import { Alert, EmptyState, ErrorState, LoadingState, Note } from '../../components/ui/States';
+import { Alert, EmptyState, ErrorState, LoadingState } from '../../components/ui/States';
 import { Button, ButtonLink } from '../../components/ui/Button';
 import { TextAreaField, TextField } from '../../components/ui/Field';
 import { CheckboxField, FormDialog } from '../../components/ui/Dialog';
@@ -188,7 +188,12 @@ export function NewPackagePage() {
   );
 }
 
-/** Gate view of one package: checklist, authority check, send / resubmit. */
+/** Gate view of one package: checklist, authority check, send / resubmit.
+ * Action bar is now a sticky bottom bar (Part B): left = checklist progress +
+ * Plant Head approval row (separate, read-only here), right = primary action that
+ * stays visible (disabled with a one-line reason when it isn't allowed).
+ * "Edit invoice No." is a small pencil next to the invoice number in the header.
+ */
 export function PackagePage() {
   const { id = '' } = useParams();
   const { user } = useAuth();
@@ -206,6 +211,7 @@ export function PackagePage() {
   const p = state.data!;
   const editable = ['draft', 'ready_for_gate_check', 'correction_requested'].includes(p.status) && can(user, 'docs.prepare');
   const miss = missingCount(p);
+  const doneCount = p.items.length - miss;
   const isResub = p.status === 'correction_requested';
   const changed = (m: string, upd?: DocumentPackageView) => { setNotice(m); if (upd) setData(upd); else reload(); };
   const opts = (k: string) => ({ idempotencyKey: k, expectedVersion: p.version });
@@ -236,54 +242,111 @@ export function PackagePage() {
   }
 
   const sendStage = p.status === 'ready_for_gate_check' || isResub;
-  const actions = editable || p.status === 'ready_for_gate_check' ? (
-    <>
-      {editable && <Button variant="ghost" onClick={() => openDlg('invoice')}>Edit invoice No.</Button>}
-      {p.status === 'draft' && <Button onClick={markReady} loading={w.busy === 'ready'} disabled={miss > 0}>Mark ready for authority check</Button>}
-      {sendStage && can(user, 'docs.submit') && (
-        <>
-          {p.status === 'ready_for_gate_check' && <Button variant="ghost" onClick={() => openDlg('back')}>Send back to Gate</Button>}
-          <Button disabled={miss > 0} onClick={() => openDlg('send')}>{isResub ? 'Resubmit to Head Office' : 'Check & send to Head Office'}</Button>
-        </>
-      )}
-    </>
-  ) : undefined;
-  const openRows = p.items.filter((i) => i.state === 'missing');
+  const canSend = sendStage && can(user, 'docs.submit');
 
   return (
     <>
-      <PageHeader mono title={p.packageRef} crumbs={[{ label: 'Document Packages', to: '/documents' }, { label: p.packageRef }]}
+      <PageHeader mono title={p.packageRef} crumbs={crumbs}
         status={<StatusLine items={[<PackageStatusTag key="s" p={p} />, <span key="o" className="text-muted">Next with {packageStatusMeta[p.status].owner}</span>]} />}
-        description={<>{p.supplierDisplayName} · Invoice <span className="font-mono text-ink">{p.invoiceRef ?? 'not entered'}</span></>}
-        actions={actions} />
-      {(editable || p.status === 'ready_for_gate_check') && (
-        <StepIndicator steps={['Attach documents', 'Mark ready', 'Check and send to Head Office']}
-          current={p.status === 'ready_for_gate_check' || (isResub && miss === 0) ? 2 : miss === 0 ? 1 : 0} />
-      )}
-      <div className="mb-8 flex flex-col gap-1.5">
-        {p.status === 'draft' && editable && (miss > 0
-          ? <p className="text-[16px] text-ink"><span className="font-mono font-medium text-signal">{miss}</span> {miss > 1 ? 'rows' : 'row'} still open: {openRows.map((i) => docCategoryMeta[i.category].label).join(', ')}. Attach a PDF or mark each one not applicable.</p>
-          : <p className="text-[16px] text-ink">Every row is done. Mark it ready so the document authority can check and send it.</p>)}
-        {sendStage && !can(user, 'docs.submit') && <p className="text-[16px] text-ink">{isResub ? 'Once the rows are fixed, the document authority resubmits.' : 'Waiting for the document authority to check and send.'}</p>}
-        {(editable || p.status === 'ready_for_gate_check') && <Note>Sending does not wait for Plant Head or final QC approval.</Note>}
+        description={<>
+          <span className="text-ink-soft">{p.supplierDisplayName}</span>
+          <span className="mx-1 text-muted">·</span>
+          <span className="inline-flex items-center gap-1.5">
+            <span className="font-mono text-ink">{p.invoiceRef ?? 'not entered'}</span>
+            {p.invoiceRef && editable && (
+              <Button type="button" variant="ghost" size="sm" className="shrink-0 h-8 px-1.5" onClick={() => openDlg('invoice')} title="Edit invoice No.">
+                <span className="sr-only">Edit invoice No.</span><span aria-hidden>✎</span>
+              </Button>
+            )}
+          </span>
+        </>} />
+
+      <div className="mx-auto min-w-0 max-w-[1216px] flex flex-col pb-24">
+        <div className="-mb-2 flex flex-wrap items-baseline gap-x-3 gap-y-1">
+          <p className="text-[16px] font-semibold text-ink">{docCategoryMeta['supplier_invoice'].label} checklist</p>
+        </div>
+
+        {(editable || p.status === 'ready_for_gate_check') && (
+          <StepIndicator steps={['Attach documents', 'Mark ready', 'Check and send to Head Office']}
+            current={p.status === 'ready_for_gate_check' || (isResub && miss === 0) ? 2 : miss === 0 ? 1 : 0} />
+        )}
+
+        <div className="flex min-w-0 flex-col gap-12">
+          <Card title="Documents" subtitle={<><span className="font-mono">{doneCount}</span> of <span className="font-mono">{p.items.length}</span> done</>}>
+            <Checklist p={p} mode="gate" editable={editable} onChanged={changed} />
+            {editable && <div className="mt-3"><ChecklistNotice /></div>}
+          </Card>
+          <div className="grid gap-12 xl:grid-cols-[minmax(0,1fr)_minmax(0,1.7fr)] xl:gap-14">
+            <Card title="Package"><PackageFacts p={p} /></Card>
+            <Card title="Linked trucks"><LinkedVisits p={p} linkToVisit={can(user, 'receiving.view')} /></Card>
+          </div>
+          <CorrectionList p={p} />
+          <ErpPanel p={p} canConfirm={false} onChanged={changed} />
+          <Card title="History"><Timeline events={p.history.slice().reverse()} /></Card>
+        </div>
+
+        {/* Sticky bottom action bar (Part B). Left = progress + Plant Head row + secondary actions; right = primary action (disabled with one-line reason when not allowed). */}
+        <div className="sticky bottom-0 z-10 mt-8 flex min-h-[78px] flex-wrap items-center justify-between gap-3 border-t border-rule bg-surface/96 px-4 pb-[calc(0.5rem+env(safe-area-inset-bottom))] pt-3 backdrop-blur-sm sm:px-6 lg:px-8">
+          {/* Left: progress + Plant Head approval row + secondary actions. */}
+          <div className="flex min-w-0 flex-wrap items-center gap-3 text-[16px] text-ink-soft">
+            <span className={cn('rounded-full px-3 py-1 text-[15px] font-medium tabular',
+              doneCount === p.items.length ? 'bg-done-bg text-done' : 'bg-paper-deep text-ink-soft')}>
+              {doneCount} of {p.items.length} rows done{miss > 0 ? <> · <span className="text-signal">{miss} open</span></> : ''}
+            </span>
+            {p.erp.find((m) => m.type === 'plant_head_grn_approval') && (
+              <span className="rounded-full bg-action-bg px-3 py-1 text-[15px] font-medium text-action">
+                Plant Head approval: {p.erp.find((m) => m.type === 'plant_head_grn_approval')!.status === 'confirmed' ? 'confirmed' : 'pending'}
+              </span>
+            )}
+            {p.status === 'ready_for_gate_check' && editable && can(user, 'docs.submit') && (
+              <Button variant="ghost" onClick={() => openDlg('back')}>Send back to Gate</Button>
+            )}
+          </div>
+          {/* Right: primary action (disabled with one-line reason when not allowed). */}
+          <div className="flex flex-col items-end gap-1">
+            {/* Draft: mark ready. */}
+            {editable && p.status === 'draft' && (
+              <>
+                <Button disabled={miss > 0} onClick={markReady} loading={w.busy === 'ready'}
+                  title={miss > 0 ? 'Close every row before marking ready.' : undefined}>
+                  Mark ready for authority check
+                </Button>
+                {miss > 0 && <p className="text-[13px] text-muted">{miss} row{miss > 1 ? 's' : ''} still need a PDF or a not-applicable mark.</p>}
+              </>
+            )}
+            {/* Send stage: send or resubmit. */}
+            {sendStage && (
+              <>
+                {canSend ? (
+                  <Button disabled={miss > 0} onClick={() => openDlg('send')}
+                    title={miss > 0 ? 'Attach or mark every open row first.' : undefined}>
+                    {isResub ? 'Resubmit to Head Office' : 'Check & send to Head Office'}
+                  </Button>
+                ) : (
+                  <button type="button" disabled className="cursor-not-allowed rounded-lg border border-rule bg-surface px-4 text-[16px] text-muted">
+                    {isResub ? 'Resubmit to Head Office' : 'Check & send to Head Office'}
+                  </button>
+                )}
+                {miss > 0 && <p className="text-[13px] text-muted">{miss} row{miss > 1 ? 's' : ''} still need a PDF or a not-applicable mark.</p>}
+                {!canSend && miss === 0 && <p className="text-[13px] text-muted">You need permission to send packages.</p>}
+              </>
+            )}
+            {/* Non-gate state: primary action not available. */}
+            {!editable && !sendStage && (
+              <>
+                <button type="button" disabled className="cursor-not-allowed rounded-lg border border-rule bg-surface px-4 text-[16px] text-muted">
+                  Check & send to Head Office
+                </button>
+                <p className="text-[13px] text-muted">{p.status === 'bill_posted' ? 'This package has been posted.' : `This package is with ${packageStatusMeta[p.status].owner}.`}</p>
+              </>
+            )}
+          </div>
+        </div>
       </div>
+
       {notice && <Alert tone="success" className="mb-8">{notice}</Alert>}
       {isResub && <Alert tone="danger" title="Head Office asked for a correction" className="mb-8">{p.corrections.find((c) => !c.resolvedAt)?.reason} Fix the rows marked HO issue; then the document authority resubmits.</Alert>}
       <WriteError error={dlg ? null : w.error} onReload={reload} className="mb-8" />
-
-      <div className="flex min-w-0 flex-col gap-12">
-        <Card title="Documents" subtitle={<><span className="font-mono">{p.items.length - miss}</span> of <span className="font-mono">{p.items.length}</span> done</>}>
-          <Checklist p={p} mode="gate" editable={editable} onChanged={changed} />
-          {editable && <div className="mt-3"><ChecklistNotice /></div>}
-        </Card>
-        <div className="grid gap-12 xl:grid-cols-[minmax(0,1fr)_minmax(0,1.7fr)] xl:gap-14">
-          <Card title="Package"><PackageFacts p={p} /></Card>
-          <Card title="Linked trucks"><LinkedVisits p={p} linkToVisit={can(user, 'receiving.view')} /></Card>
-        </div>
-        <CorrectionList p={p} />
-        <ErpPanel p={p} canConfirm={false} onChanged={changed} />
-        <Card title="History"><Timeline events={p.history.slice().reverse()} /></Card>
-      </div>
 
       <FormDialog open={!!dlg} busy={!!w.busy} onCancel={() => setDlg(null)} onConfirm={submitDlg}
         title={dlg === 'send' ? (isResub ? 'Resubmit to Head Office?' : 'Send to Head Office?') : dlg === 'back' ? 'Send back to Gate?' : 'Invoice No.'}

@@ -34,7 +34,17 @@ const cardsByRole: Record<RoleCode, { main: HomeCard[]; more: HomeCard[] }> = {
     ],
     more: [
       { id: 'reg', title: 'All trucks', desc: '', to: '/receiving', icon: ListChecks },
-      { id: 'docs', title: 'Documents', desc: '', to: '/documents', icon: FileText },
+      { id: 'ov', title: 'Overview', desc: '', to: '/overview', icon: BarChart3 },
+    ],
+  },
+  gate_doc_authority: {
+    main: [
+      { id: 'dprep', title: 'Documents to prepare', desc: 'Attach the papers for each supplier invoice.', to: '/documents', icon: FileText, count: 'docsPrep', countText: waiting },
+      { id: 'dsend', title: 'Check and send to Head Office', desc: 'Packages ready for your check.', to: '/documents?tab=prep', icon: Send, count: 'docsSend', countText: waiting },
+      { id: 'dfix', title: 'Corrections asked by HO', desc: 'Head Office sent a package back.', to: '/documents?tab=fix', icon: ListChecks, count: 'docsFix', countText: waiting },
+    ],
+    more: [
+      { id: 'reg', title: 'All trucks', desc: '', to: '/receiving', icon: ListChecks },
       { id: 'ov', title: 'Overview', desc: '', to: '/overview', icon: BarChart3 },
     ],
   },

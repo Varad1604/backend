@@ -19,24 +19,31 @@ export type Capability =
   | 'docs.submit'        // authorise and send package to HO (Pathak/Kishore role)
   | 'ho.inbox'           // view HO inbox and PDFs
   | 'ho.review'          // verify documents / request corrections
-  | 'erp.confirm'        // record staff-confirmed DataMan milestones and reminders
-  | 'accounting.inbox'   // view the accounting queue and packages in accounting states
+  | 'erp.confirm'             // record staff-confirmed DataMan milestones and reminders (HO)
+  | 'erp.plant_head_approval' // Document Authority: confirm Plant Head GRN approval
+  | 'erp.purchase_voucher'    // Head Office: confirm purchase voucher
+  | 'erp.final_posting'       // Head Accountant: confirm final posting (after approve)
+  | 'accounting.inbox'        // view the accounting queue and packages in accounting states
   | 'accounting.review'  // Accountant: start accounting, hand over, correct with reason
   | 'accounting.approve' // Head Accountant: approve or return to the Accountant
   | 'accounting.post'    // Head Accountant: post the bill (final internal state)
   | 'admin.users';
 
 const grants: Record<RoleCode, Capability[]> = {
-  gate: ['receiving.view', 'receiving.create', 'receiving.edit', 'gate.followup', 'qc.queue.view', 'overview.view', 'docs.prepare'],
-  gate_doc: ['receiving.view', 'overview.view', 'docs.prepare', 'docs.submit'],
+  gate: ['receiving.view', 'receiving.create', 'receiving.edit', 'gate.followup', 'qc.queue.view'],
+  // Document Authority has the same operational powers as Gate plus document preparation and
+  // submission. It is intentionally separate from the plain Gate operator (the Gate operator
+  // must not see Documents).
+  gate_doc_authority: ['receiving.view', 'receiving.create', 'receiving.edit', 'gate.followup', 'qc.queue.view', 'overview.view', 'docs.prepare', 'docs.submit', 'erp.plant_head_approval'],
+  gate_doc: ['receiving.view', 'overview.view', 'docs.prepare', 'docs.submit', 'erp.plant_head_approval'],
   qc: ['receiving.view', 'qc.queue.view', 'qc.measure', 'qc.decide', 'overview.view'],
-  ho: ['receiving.view', 'overview.view', 'ho.inbox', 'ho.review', 'erp.confirm'],
+  ho: ['receiving.view', 'overview.view', 'ho.inbox', 'ho.review', 'erp.confirm', 'erp.purchase_voucher'],
   accountant: ['receiving.view', 'overview.view', 'accounting.inbox', 'accounting.review'],
-  head_accountant: ['receiving.view', 'overview.view', 'accounting.inbox', 'accounting.review', 'accounting.approve', 'accounting.post'],
+  head_accountant: ['receiving.view', 'overview.view', 'accounting.inbox', 'accounting.review', 'accounting.approve', 'accounting.post', 'erp.final_posting'],
   admin: ['receiving.view', 'overview.view', 'ho.inbox', 'admin.users'],
 };
 
-export const ALL_ROLES: RoleCode[] = ['gate', 'gate_doc', 'qc', 'ho', 'accountant', 'head_accountant', 'admin'];
+export const ALL_ROLES: RoleCode[] = ['gate', 'gate_doc', 'gate_doc_authority', 'qc', 'ho', 'accountant', 'head_accountant', 'admin'];
 
 export function capsFor(role: RoleCode): Capability[] {
   return grants[role];
@@ -48,12 +55,13 @@ export function can(user: User | null, cap: Capability): boolean {
 
 export const roleLabel: Record<RoleCode, string> = {
   gate: 'Gate Operator',
-  gate_doc: 'Gate Document Authority',
-  qc: 'QC Operator',
-  ho: 'Head Office Accounts',
-  accountant: 'Accountant',
-  head_accountant: 'Head Accountant',
-  admin: 'System Admin',
+  gate_doc: 'डॉक्युमेंट अथॉरिटी',
+  gate_doc_authority: 'डॉक्युमेंट अथॉरिटी',
+  qc: 'क्यूसी ऑपरेटर',
+  ho: 'हेड ऑफिस अकाउंट्स',
+  accountant: 'अकाउंटंट',
+  head_accountant: 'हेड अकाउंटंट',
+  admin: 'सिस्टम अडमिन',
 };
 
 export const capabilityLabel: Record<Capability, string> = {
@@ -69,8 +77,11 @@ export const capabilityLabel: Record<Capability, string> = {
   'docs.submit': 'Authorise and send package to HO',
   'ho.inbox': 'View Head Office inbox and PDFs',
   'ho.review': 'Verify documents / request corrections',
-  'erp.confirm': 'Record DataMan milestones and reminders',
-  'accounting.inbox': 'View the accounting queue and packages',
+  'erp.confirm': 'रecord staff-confirmed DataMan milestones and reminders (HO)',
+  'erp.plant_head_approval': 'Plant Head GRN अनुमोदन पुष्टी करा (DataMan)',
+  'erp.purchase_voucher': 'खरेदी वाउचर पुष्टी करा (DataMan)',
+  'erp.final_posting': 'अंतिम पोस्टिंग पुष्टी करा (DataMan, मंज़ूरीनंतर)',
+  'accounting.inbox': 'अकाउंटिंग क्यू आणि पॅकेजेस पाहा',
   'accounting.review': 'Start accounting and hand over to the Head Accountant',
   'accounting.approve': 'Approve accounting or return it to the Accountant',
   'accounting.post': 'Post the bill (final accounting state)',

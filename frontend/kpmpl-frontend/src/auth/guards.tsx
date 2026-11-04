@@ -1,7 +1,7 @@
 import { Navigate, Outlet, useLocation } from 'react-router-dom';
 import { useAuth } from './AuthContext';
 import { can, landingPath, type Capability } from './permissions';
-import { LoadingState, ForbiddenState } from '../components/ui/States';
+import { LoadingState } from '../components/ui/States';
 
 export const CHANGE_PASSWORD_PATH = '/account/password';
 
@@ -9,7 +9,6 @@ export const CHANGE_PASSWORD_PATH = '/account/password';
 export interface LoginRedirectState {
   from?: string;
 }
-
 export function RequireAuth() {
   const { user, ready } = useAuth();
   const loc = useLocation();
@@ -19,13 +18,12 @@ export function RequireAuth() {
   if (user.mustChangePassword && loc.pathname !== CHANGE_PASSWORD_PATH) return <Navigate to={CHANGE_PASSWORD_PATH} replace />;
   return <Outlet />;
 }
-
-export function RequireCap({ cap, children }: { cap: Capability; children: React.ReactNode }) {
+export function RequireCap({ cap, children }: { cap: Capability | Capability[]; children: React.ReactNode }) {
   const { user } = useAuth();
-  if (!can(user, cap)) return <ForbiddenState />;
+  const caps = Array.isArray(cap) ? cap : [cap];
+  if (!caps.some(c => can(user, c))) return <Navigate to="/home" replace />;
   return <>{children}</>;
 }
-
 export function HomeRedirect() {
   const { user } = useAuth();
   return <Navigate to={user ? landingPath(user) : '/login'} replace />;

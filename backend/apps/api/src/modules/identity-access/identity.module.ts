@@ -9,6 +9,7 @@ import { HttpErrorFilter } from '../common/http-error.filter';
 import { AuthController } from './auth.controller';
 import { UsersController } from './users.controller';
 import { AdminUsersController } from './admin-users.controller';
+import { AdminDashboardController } from './admin-dashboard.controller';
 import { AuthService } from './auth.service';
 import { AuthGuard } from './auth.guard';
 import { PasswordService } from './password.service';
@@ -17,7 +18,7 @@ import { RecordPolicyService } from './policy.service';
 import { RateLimitService } from './rate-limit.service';
 @Module({
   imports: [AuditModule],
-  controllers: [AuthController, UsersController, AdminUsersController, AuditController, FeaturesController, PoliciesController, DocsController],
+  controllers: [AuthController, UsersController, AdminUsersController, AdminDashboardController, AuditController, FeaturesController, PoliciesController, DocsController],
   providers: [AuthService, PasswordService, TokenService, RecordPolicyService, RateLimitService,
     { provide: APP_GUARD, useClass: AuthGuard }, { provide: APP_FILTER, useClass: HttpErrorFilter }],
   exports: [AuthService, RecordPolicyService],

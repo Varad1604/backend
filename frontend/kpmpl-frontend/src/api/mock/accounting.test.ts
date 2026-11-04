@@ -9,8 +9,9 @@ import { api } from '../index';
 import { MOCK_DEMO_PASSWORD } from '../../auth/demoAccounts';
 
 async function verifiedPackage(): Promise<{ id: string; version: number }> {
-  await api.login('demo-gate', MOCK_DEMO_PASSWORD);
-  // The fixture package DEMO-PKG-0003 is already verified with every row resolved.
+  // DEMO-PKG-0003 is a verified fixture package. List it through a role that can see packages
+  // (the Gate operator no longer has docs.prepare — see Part A).
+  await api.login('demo-docs', MOCK_DEMO_PASSWORD);
   const packages = await api.listPackages('gate');
   const p = packages.find((x) => x.packageRef === 'DEMO-PKG-0003');
   if (!p) throw new Error('DEMO-PKG-0003 fixture missing');
@@ -48,7 +49,7 @@ describe('accounting workflow by the Accountant and Head Accountant (mock)', () 
     await expect(api.accountingAction(pkg.id, { kind: 'post_bill', billRef: 'DEMO-BILL-1' }, { idempotencyKey: 'k-po', expectedVersion: p.version })).rejects.toMatchObject({ code: 'FORBIDDEN' });
 
     // Head Accountant: return once, then approve.
-    await api.login('demo-head-act', MOCK_DEMO_PASSWORD);
+    await api.login('demo-headacc', MOCK_DEMO_PASSWORD);
     p = await api.accountingAction(pkg.id, { kind: 'return_to_accountant', reason: 'Demo: check the freight line' }, { idempotencyKey: 'k-ret', expectedVersion: p.version });
     expect(p.status).toBe('with_accounting');
     await expect(api.accountingAction(pkg.id, { kind: 'approve_accounting' }, { idempotencyKey: 'k-early', expectedVersion: p.version })).rejects.toMatchObject({ code: 'DOMAIN_RULE' });
@@ -56,7 +57,7 @@ describe('accounting workflow by the Accountant and Head Accountant (mock)', () 
     await api.login('demo-accountant', MOCK_DEMO_PASSWORD);
     p = await api.accountingAction(pkg.id, { kind: 'submit_to_head_accountant', confirmComplete: true }, { idempotencyKey: 'k-submit2', expectedVersion: p.version });
 
-    await api.login('demo-head-act', MOCK_DEMO_PASSWORD);
+    await api.login('demo-headacc', MOCK_DEMO_PASSWORD);
     p = await api.accountingAction(pkg.id, { kind: 'approve_accounting', headAccountantNote: 'Demo approved' }, { idempotencyKey: 'k-appr', expectedVersion: p.version });
     expect(p.status).toBe('accounting_approved');
     expect(p.accounting?.headAccountantNote).toBe('Demo approved');

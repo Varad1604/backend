@@ -39,6 +39,13 @@ export class AuthService {
     if (!permits(current.capabilities, capability)) throw new ForbiddenException('Permission denied.');
     return current;
   }
+  async authorizeAny(actor: Actor, capabilities: Capability[], tx?: Prisma.TransactionClient): Promise<Actor> {
+    const session = await (tx ?? this.prisma).session.findUnique({ where: { id: actor.sessionId }, include: { user: { include: includeRoles } } });
+    if (!session || session.userId !== actor.userId || session.revokedAt || session.expiresAt <= new Date() || !session.user.isActive) throw new UnauthorizedException('Invalid or expired session.');
+    const current = { userId: session.userId, sessionId: session.id, roles: userDto(session.user).roles, capabilities: grantedCapabilities(session.user), mustChangePassword: session.user.mustChangePassword };
+    if (!capabilities.some(c => permits(current.capabilities, c))) throw new ForbiddenException('Permission denied.');
+    return current;
+  }
   async login(username: string, password: string, context: SessionContext) {
     // Brief §3: 5/min per IP+username; lockout is checked per account.
     await this.limits.limitLogin(context.ip, username);

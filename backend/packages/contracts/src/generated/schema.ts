@@ -1443,6 +1443,165 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/document-packages/{id}/accounting": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["VisitId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Accounting workflow action (accounting.review / accounting.approve / accounting.post; upgrade 2026-11-03) */
+        post: {
+            parameters: {
+                query?: never;
+                header: {
+                    "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+                    /** @description Integer version (not a quoted ETag) */
+                    "If-Match": components["parameters"]["IfMatch"];
+                };
+                path: {
+                    id: components["parameters"]["VisitId"];
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["AccountingAction"];
+                };
+            };
+            responses: {
+                200: components["responses"]["PackageView"];
+                422: components["responses"]["Error"];
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/accounting/cases/{id}/checks": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["VisitId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Record the three accountant-review checks for a package (accounting.review) */
+        post: {
+            parameters: {
+                query?: never;
+                header: {
+                    "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+                };
+                path: {
+                    id: components["parameters"]["VisitId"];
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["AccountingChecks"];
+                };
+            };
+            responses: {
+                200: components["responses"]["PackageView"];
+                422: components["responses"]["Error"];
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/accounting/cases/{id}/actions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["VisitId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Accounting workflow action at the accounting-cases URL (mirrors POST /document-packages/{id}/accounting) */
+        post: {
+            parameters: {
+                query?: never;
+                header: {
+                    "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+                    /** @description Integer version (not a quoted ETag) */
+                    "If-Match": components["parameters"]["IfMatch"];
+                };
+                path: {
+                    id: components["parameters"]["VisitId"];
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["AccountingAction"];
+                };
+            };
+            responses: {
+                200: components["responses"]["PackageView"];
+                422: components["responses"]["Error"];
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/head-accountant/cases": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Packages for the Head Accountant (with_head_accountant + accounting_approved), updatedAt DESC */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            data: components["schemas"]["DocumentPackageView"][];
+                        };
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/head-office/cases": {
         parameters: {
             query?: never;
@@ -1624,7 +1783,7 @@ export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
         /** @enum {string} */
-        RoleCode: "gate" | "gate_doc" | "qc" | "ho" | "admin";
+        RoleCode: "gate" | "gate_doc" | "gate_doc_authority" | "qc" | "ho" | "accountant" | "head_accountant" | "admin";
         /** @enum {string} */
         QcStatus: "pending" | "in_progress" | "submitted" | "returned" | "accepted" | "accepted_with_deduction" | "rejected";
         /** @enum {string} */
@@ -1634,7 +1793,7 @@ export interface components {
         /** @enum {string} */
         DocCategory: "supplier_invoice" | "factory_grn" | "weighbridge_slip" | "qc_slip" | "supporting_bill" | "eway_bill";
         /** @enum {string} */
-        PackageStatus: "draft" | "ready_for_gate_check" | "submitted_to_ho" | "under_ho_review" | "correction_requested" | "resubmitted" | "verified";
+        PackageStatus: "draft" | "ready_for_gate_check" | "submitted_to_ho" | "under_ho_review" | "correction_requested" | "resubmitted" | "verified" | "with_accounting" | "with_head_accountant" | "accounting_approved" | "bill_posted";
         Quantity: {
             value: string;
             /** @constant */
@@ -1809,6 +1968,8 @@ export interface components {
                 withHo: number;
                 correctionRequested: number;
                 verified: number;
+                withAccounting: number;
+                billPosted: number;
             };
             erp: {
                 approvalPending: number;
@@ -1897,6 +2058,8 @@ export interface components {
             /** Format: date-time */
             updatedAt: string;
             version: number;
+            accounting?: components["schemas"]["AccountingInfo"] | null;
+            accountingChecks?: components["schemas"]["AccountingCheckEntry"][];
             visits: components["schemas"]["ReceivingVisit"][];
         };
         PackageAction: {
@@ -1923,6 +2086,73 @@ export interface components {
         } | {
             /** @constant */
             kind: "verify";
+        };
+        AccountingAction: {
+            /** @constant */
+            kind: "start_accounting";
+        } | {
+            /** @constant */
+            kind: "submit_to_head_accountant";
+            /** @constant */
+            confirmComplete: true;
+            accountantNote?: string;
+        } | {
+            /** @constant */
+            kind: "return_to_ho";
+            reason: string;
+            failedChecks: ("bill_passed" | "gst_checked" | "tds_checked")[];
+        } | {
+            /** @constant */
+            kind: "return_to_accountant";
+            reason: string;
+        } | {
+            /** @constant */
+            kind: "approve_accounting";
+            headAccountantNote?: string;
+        } | {
+            /** @constant */
+            kind: "post_bill";
+            billRef: string;
+            note?: string;
+        } | {
+            /** @constant */
+            kind: "correct_accounting";
+            /** @enum {string} */
+            field: "accountingRef" | "accountantNote" | "headAccountantNote";
+            value: string;
+            reason: string;
+        };
+        AccountingChecks: {
+            checks: {
+                /** @enum {string} */
+                type: "bill_passed" | "gst_checked" | "tds_checked";
+                /** @enum {string} */
+                status: "pending" | "ok" | "issue";
+                note?: string;
+                /** Format: uuid */
+                checkedBy?: string;
+                /** Format: date-time */
+                checkedAt?: string;
+            }[];
+        };
+        AccountingInfo: {
+            status: components["schemas"]["PackageStatus"];
+            accountingRef: string | null;
+            accountantNote: string | null;
+            headAccountantNote: string | null;
+            billRef: string | null;
+            /** Format: date-time */
+            postedAt: string | null;
+        };
+        AccountingCheckEntry: {
+            /** @enum {string} */
+            type: "bill_passed" | "gst_checked" | "tds_checked";
+            /** @enum {string} */
+            status: "pending" | "ok" | "issue";
+            note?: string | null;
+            checkedBy: string;
+            /** Format: date-time */
+            checkedAt: string;
         };
         Error: {
             error: {
