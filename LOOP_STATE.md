@@ -62,7 +62,8 @@ Re-read at the start of every cycle. Mark items `[x] FIXED`, `[x] FIXED (already
 
 ## Phase gates
 - [x] All Medium done → full check → bump frontend 0.8.4 → commit "release 0.8.4"
-- [ ] All Low done → full check → bump frontend 0.8.5 → commit "release 0.8.5"
+- [x] All Low done → full check → bump frontend 0.8.5 → commit "release 0.8.5"
 
 ## Full-check log
 - 0.8.4 gate: backend tsc OK, lint clean, vitest 67/67 (15 files, 0 skipped, incl. journey-v085); frontend tsc OK, 84/84, build OK (index-CP5zlf7b.js); journey gate→QC→exit→GRN→package→HO verify→Accountant→Head Accountant return_to_ho→re-verify→restart→approve→DataMan milestones→bill_posted passes live.
+- 0.8.5 gate: frontend tsc OK / lint 0-0 / 84/84 / build OK (index-GLO6S1Wi.js, served == dist verified); backend tsc OK / build OK / lint clean / 67/67 0 skipped; API container rebuilt + redeployed, readyz green; served frontend hash == dist verified.
