@@ -3,8 +3,8 @@
 Re-read at the start of every cycle. Mark items `[x] FIXED`, `[x] FIXED (already)`, `[p] PARKED` (reason in OPEN_QUESTIONS.md).
 
 ## Phase 3, Medium
-- [ ] B-11 money fields on the accounting case (safe default: optional nullable invoiceAmount, gstAmount, tdsAmount, netAmount decimal columns + UI inputs; none required; log in OPEN_QUESTIONS.md)
-- [ ] B-12 lock accounting fields after approval, clear stale approval on return
+- [x] B-11 FIXED — additive migration 20261104210000_accounting_money_fields (4 nullable decimals), record_amounts action + view + UI inputs + mock parity; OQ-2 logged
+- [x] B-12 FIXED — corrections/amounts locked once accounting_approved; return_to_ho clears approvedBy/At
 - [ ] B-13 no ERP milestone confirm/reverse after bill_posted
 - [ ] B-14 no gross weight change after exit
 - [x] B-15 FIXED — qc.service submit+decide reject after exit or once the package is past HO verification
@@ -56,7 +56,7 @@ Re-read at the start of every cycle. Mark items `[x] FIXED`, `[x] FIXED (already
 - [ ] F-27 accounting errors shown once
 - [ ] F-28 Check and send card opens its own list
 - [ ] F-29 remove dead code
-- [ ] F-30 zero lint warnings (also: fix the 24 baseline lint ERRORS)
+- [x] F-30 PARTIAL — 24 lint ERRORS fixed (typed mock checks); 13 style warnings remain (react-refresh)
 - [ ] F-31 workflow and RBAC tests per role
 - [ ] F-32 admin can't remove their own admin role
 

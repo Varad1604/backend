@@ -100,6 +100,9 @@ export class DocumentsService {
       accounting: row.accounting ? {
         stage: row.accounting.stage as 'with_accountant' | 'with_head_accountant' | 'approved' | 'posted',
         accountingRef: row.accounting.accountingRef, accountantNote: row.accounting.accountantNote, headAccountantNote: row.accounting.headAccountantNote,
+        // B-11: money fields serialize as fixed-scale decimal strings (Prisma Decimal → string).
+        invoiceAmount: row.accounting.invoiceAmount?.toFixed(2) ?? null, gstAmount: row.accounting.gstAmount?.toFixed(2) ?? null,
+        tdsAmount: row.accounting.tdsAmount?.toFixed(2) ?? null, netAmount: row.accounting.netAmount?.toFixed(2) ?? null,
         startedBy: nameOf(row.accounting.startedBy)!, startedAt: row.accounting.startedAt.toISOString(),
         submittedBy: nameOf(row.accounting.submittedBy), submittedAt: row.accounting.submittedAt?.toISOString() ?? null,
         approvedBy: nameOf(row.accounting.approvedBy), approvedAt: row.accounting.approvedAt?.toISOString() ?? null,
@@ -396,7 +399,8 @@ export class DocumentsService {
 
       if (input.kind === 'return_to_ho') {
         if (status !== 'with_head_accountant' && status !== 'accounting_approved') throw domain('Only a package with the Head Accountant can be returned to Head Office.');
-        await tx.accountingRecord.update({ where: { packageId: id }, data: { stage: 'with_accountant' } });
+        // B-12: a return clears a stale approval so the record never claims approval it lost.
+        await tx.accountingRecord.update({ where: { packageId: id }, data: { stage: 'with_accountant', approvedBy: null, approvedAt: null } });
         await tx.documentPackage.update({ where: { id }, data: { status: 'verified' } });
         detail = `Returned to Head Office: ${input.reason.trim()} (failed: ${(input as any).failedChecks?.join(', ')})`;
       }
@@ -424,13 +428,39 @@ export class DocumentsService {
         return { status: 200, body: json({ data: await this.present(tx, id) }) };
       }
 
+      if (input.kind === 'record_amounts') {
+        // B-11: staff-typed optional money fields. The Accountant records them while the
+        // package is with Accounts; the Head Accountant may also record while it is with
+        // them. Once approved the fields are locked (B-12), and bill_posted is terminal.
+        if (!record) throw domain('Start accounting on this package first.');
+        if (status === 'bill_posted' || status === 'accounting_approved') throw domain('The accounting is approved or posted. The amounts are locked.');
+        if (status !== 'with_accounting' && !isHead) throw domain('The package is with the Head Accountant. Only the Head Accountant can change the amounts now.');
+        const money = ['invoiceAmount', 'gstAmount', 'tdsAmount', 'netAmount'] as const;
+        const before: Record<string, string | null> = {};
+        const after: Record<string, string | null> = {};
+        const data: Record<string, Prisma.Decimal | null> = {};
+        for (const field of money) {
+          if (input[field] === undefined) continue;
+          const previousValue = record[field] === null || record[field] === undefined ? null : String(record[field]);
+          before[field] = previousValue;
+          after[field] = input[field];
+          data[field] = input[field] === null ? null : new Prisma.Decimal(input[field]);
+        }
+        await tx.accountingRecord.update({ where: { packageId: id }, data });
+        await this.history(tx, id, current.userId, 'accounting_amounts_recorded',
+          money.filter(field => input[field] !== undefined).map(field => `${field === 'invoiceAmount' ? 'Invoice' : field === 'gstAmount' ? 'GST' : field === 'tdsAmount' ? 'TDS' : 'Net'} amount: ${before[field] ?? '—'} → ${after[field] ?? '—'}`).join('; '));
+        await this.audit.append(tx, { entityType: 'DocumentPackage', entityId: id, actorId: current.userId, action: 'accounting_amounts_recorded',
+          oldValue: before, newValue: after });
+        return { status: 200, body: json({ data: await this.present(tx, id) }) };
+      }
+
       if (input.kind === 'correct_accounting') {
         if (!record) throw domain('Start accounting on this package first.');
         if (status === 'bill_posted') throw domain('The bill is posted. No further accounting changes.');
         // Stage authority: the Accountant works the package while it is with them; once it is
-        // with the Head Accountant (or approved), only the Head Accountant corrects. The Head
-        // Accountant's note is theirs alone. Financial fields (amounts, tax, ledger) are NOT
-        // editable here — pending an explicit KPMPL decision (see overnight-reports/DECISIONS.md).
+        // with the Head Accountant, only the Head Accountant corrects. B-12: once approved,
+        // the fields are locked — the only next steps are post_bill or return_to_ho.
+        if (status === 'accounting_approved') throw domain('The accounting is approved. The fields are locked — post the bill or return the package to Head Office.');
         if (status !== 'with_accounting' && !isHead) throw domain('The package is with the Head Accountant. Only the Head Accountant can change it now.');
         if (input.field === 'headAccountantNote' && !isHead) throw domain('Only the Head Accountant can change the Head Accountant note.');
         const currentValue = input.field === 'accountingRef' ? record.accountingRef : input.field === 'accountantNote' ? record.accountantNote : record.headAccountantNote;

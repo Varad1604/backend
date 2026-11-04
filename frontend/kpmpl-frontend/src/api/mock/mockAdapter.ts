@@ -6,7 +6,8 @@
  * decision ID and labelled in the UI as a prototype assumption.
  */
 import type { PackageAction, ReceivingApi, VersionedWrite, WriteOptions } from '../ReceivingApi';
-import type { AccountingAction } from '../../domain/types';
+import type { AccountingAction, AccountingCheck, AccountingChecks } from '../../domain/types';
+type AccountingCheckInput = AccountingCheck;
 import { ApiError } from '../errors';
 import { emitSessionExpired } from '../../auth/sessionEvents';
 import { buildCsv, formatDateTime } from '../../lib/format';
@@ -1083,7 +1084,8 @@ export const mockAdapter: ReceivingApi = {
         if (p.status !== 'verified') throw rule(ACCOUNTING_VISIBLE.slice(1).includes(p.status) ? 'Accounting has already started on this package.' : 'Only a Head-Office-verified package can move to Accounts.');
         p.status = 'with_accounting';
         p.accounting = { stage: 'with_accountant', accountingRef: null, accountantNote: null, headAccountantNote: null,
-          startedBy: u.displayName, startedAt: nowIso(), submittedBy: null, submittedAt: null, approvedBy: null, approvedAt: null, postedBy: null, postedAt: null, corrections: [] };
+          startedBy: u.displayName, startedAt: nowIso(), submittedBy: null, submittedAt: null, approvedBy: null, approvedAt: null, postedBy: null, postedAt: null, corrections: [],
+          invoiceAmount: null, gstAmount: null, tdsAmount: null, netAmount: null };
         logPkg(p, u.displayName, 'Sent to Accounts', 'Documents verified by Head Office. Accounting review started.');
         break;
       }
@@ -1140,6 +1142,26 @@ export const mockAdapter: ReceivingApi = {
         p.visitIds.forEach((vid) => logVisit(db, vid, { actor: u.displayName, action: `Bill ${action.billRef.trim()} posted (package ${p.packageRef}). Internal accounting status; not an ERP confirmation.`, source: 'app' }));
         break;
       }
+      // B-11: staff-typed optional money fields, same rules as the server (mock parity).
+      case 'record_amounts': {
+        const u = requireCap('accounting.review', db);
+        if (!acc) throw rule('Start accounting on this package first.');
+        if (p.status === 'bill_posted' || p.status === 'accounting_approved') throw rule('The accounting is approved or posted. The amounts are locked.');
+        if (p.status !== 'with_accounting' && !isHead) throw rule('The package is with the Head Accountant. Only the Head Accountant can change the amounts now.');
+        const moneyFields = ['invoiceAmount', 'gstAmount', 'tdsAmount', 'netAmount'] as const;
+        if (!moneyFields.some((f) => action[f] !== undefined)) fields.value = 'Enter at least one amount.';
+        for (const f of moneyFields) {
+          const value = action[f];
+          if (value !== undefined && value !== null && !/^(0|[1-9]\d{0,11})(\.\d{1,2})?$/.test(value)) fields[f] = 'Use a positive amount with at most 2 decimal places.';
+        }
+        fail(fields);
+        for (const f of moneyFields) {
+          if (action[f] === undefined) continue;
+          (acc as unknown as Record<string, unknown>)[f] = action[f];
+        }
+        logPkg(p, u.displayName, 'Accounting amounts recorded', 'Staff-typed amounts saved; nothing is calculated.');
+        break;
+      }
       case 'correct_accounting': {
         const u = requireCap('accounting.review', db);
         if (!acc) throw rule('Start accounting on this package first.');
@@ -1172,7 +1194,7 @@ export const mockAdapter: ReceivingApi = {
     return fileBlobs.get(fileId) ?? null;
   },
 
-  recordAccountingChecks(id, checks, _opts) {
+  recordAccountingChecks(id, checks: AccountingChecks | AccountingCheckInput[], _opts) {
     return (async () => {
       await delay();
       const db = load();
@@ -1183,22 +1205,19 @@ export const mockAdapter: ReceivingApi = {
       if (p.status !== 'with_accounting')
         throw rule('The accountant can only record checks while the package is with them (with_accounting).');
       const user = currentUser(db);
-      const inputChecks = (checks as any)?.checks ?? checks;
+      // B-20/F-30: typed inputs — {checks:[{type,status,note}]} per the contract; no `any`.
+      const wrap: AccountingCheck[] = Array.isArray(checks) ? checks : checks.checks;
+      const byType = new Map(wrap.map((c) => [c.type, c]));
+      const inputChecks: AccountingCheck[] = (['bill_passed', 'gst_checked', 'tds_checked'] as const)
+        .map((type) => byType.get(type) ?? { type, status: 'pending' as const, note: null, checkedBy: null, checkedAt: null });
       const now = nowIso();
-      const makeCheck = (type: 'bill_passed' | 'gst_checked' | 'tds_checked', input: any) => {
-        const status = input?.status ?? (input?.ok === true || input?.checked === true || input?.passed === true ? 'ok' : input?.status ?? 'pending');
-        const note = input?.note ?? null;
-        return { type, status, note, checkedBy: user.displayName, checkedAt: now };
-      };
+      const makeCheck = (input: AccountingCheck) => ({
+        type: input.type, status: input.status, note: input.note ?? null,
+        checkedBy: user.displayName, checkedAt: now,
+      });
       const entry = {
         id: 'chk-' + id.slice(-8),
-        checks: Array.isArray(inputChecks)
-          ? inputChecks.map((c: any) => ({ type: c.type, status: c.status, note: c.note ?? null, checkedBy: user.displayName, checkedAt: now }))
-          : [
-              makeCheck('bill_passed', inputChecks?.billPassed ?? inputChecks),
-              makeCheck('gst_checked', inputChecks?.gstChecked ?? inputChecks),
-              makeCheck('tds_checked', inputChecks?.tdsChecked ?? inputChecks),
-            ],
+        checks: inputChecks.map((c) => makeCheck(c)),
         checkedBy: user.displayName,
         checkedAt: now,
       };

@@ -388,6 +388,11 @@ export interface AccountingInfo {
   accountingRef: string | null;
   accountantNote: string | null;
   headAccountantNote: string | null;
+  /** B-11: staff-typed optional money amounts, fixed 2-decimal strings; never computed. */
+  invoiceAmount: string | null;
+  gstAmount: string | null;
+  tdsAmount: string | null;
+  netAmount: string | null;
   startedBy: string;
   startedAt: Iso8601;
   submittedBy: string | null;
@@ -407,7 +412,9 @@ export type AccountingAction =
   | { kind: 'approve_accounting'; headAccountantNote?: string }
   /** billRef is the bill reference as typed (opaque). Duplicate posting is refused server-side. */
   | { kind: 'post_bill'; billRef: string; note?: string }
-  | { kind: 'correct_accounting'; field: AccountingField; value: string; reason: string };
+  | { kind: 'correct_accounting'; field: AccountingField; value: string; reason: string }
+  /** B-11: at least one amount per call; null clears a previously typed amount. */
+  | { kind: 'record_amounts'; invoiceAmount?: string | null; gstAmount?: string | null; tdsAmount?: string | null; netAmount?: string | null };
 
 export interface CreatePackageInput { visitIds: string[]; invoiceRef?: string }
 export interface UpdatePackageInput { visitIds?: string[]; invoiceRef?: string }

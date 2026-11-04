@@ -96,6 +96,22 @@ describe.skipIf(process.env.REQUIRE_LIVE_DEPENDENCIES !== 'true')('accounting wo
     // The Head Accountant note belongs to the Head Accountant alone.
     expect((await act(pkg.id, accountant, { kind: 'correct_accounting', field: 'headAccountantNote', value: 'DEMO', reason: 'DEMO overreach' }, pkg.version)).statusCode).toBe(422);
 
+    // --- B-11: staff-typed money fields (optional, none required) ---
+    result = await act(pkg.id, accountant, { kind: 'record_amounts', invoiceAmount: '15250.50', gstAmount: '2745.09' }, pkg.version);
+    expect(result.statusCode, result.body).toBe(200); pkg = result.json().data;
+    expect(pkg.accounting.invoiceAmount).toBe('15250.50');
+    expect(pkg.accounting.gstAmount).toBe('2745.09');
+    expect(pkg.accounting.tdsAmount).toBeNull();
+    // Clearing a field sends null.
+    result = await act(pkg.id, accountant, { kind: 'record_amounts', gstAmount: null }, pkg.version);
+    expect(result.statusCode, result.body).toBe(200); pkg = result.json().data;
+    expect(pkg.accounting.gstAmount).toBeNull();
+    // Invalid money shapes are refused; at least one amount is required.
+    expect((await act(pkg.id, accountant, { kind: 'record_amounts', invoiceAmount: '15,250.5' }, pkg.version)).statusCode).toBe(422);
+    expect((await act(pkg.id, accountant, { kind: 'record_amounts' }, pkg.version)).statusCode).toBe(422);
+    // Restore an invoice amount for the posting assertions below.
+    pkg = (await act(pkg.id, accountant, { kind: 'record_amounts', invoiceAmount: '15250.50' }, pkg.version)).json().data;
+
     // --- Hand over; the Accountant loses write access ---
     result = await act(pkg.id, accountant, { kind: 'submit_to_head_accountant', confirmComplete: true, accountantNote: 'DEMO entries complete' }, pkg.version);
     expect(result.statusCode).toBe(200); pkg = result.json().data;
@@ -115,6 +131,10 @@ describe.skipIf(process.env.REQUIRE_LIVE_DEPENDENCIES !== 'true')('accounting wo
     expect(pkg.status).toBe('accounting_approved');
     expect(pkg.accounting.headAccountantNote).toBe('DEMO approved for posting');
     expect(pkg.accounting.approvedBy).toBe('DEMO-head_accountant');
+
+    // --- B-12: once approved, the fields are locked ---
+    expect((await act(pkg.id, head, { kind: 'correct_accounting', field: 'accountingRef', value: '0009-AC-2', reason: 'DEMO after approval' }, pkg.version)).statusCode).toBe(422);
+    expect((await act(pkg.id, head, { kind: 'record_amounts', invoiceAmount: '1.00' }, pkg.version)).statusCode).toBe(422);
 
     result = await act(pkg.id, head, { kind: 'post_bill', billRef: '00071-HO', note: 'DEMO internal posting' }, pkg.version);
     expect(result.statusCode).toBe(200); pkg = result.json().data;

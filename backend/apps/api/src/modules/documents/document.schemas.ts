@@ -36,6 +36,8 @@ export const ACCOUNTING_VISIBLE = ['verified', ...ACCOUNTING_STATES] as const;
 export const accountingFields = ['accountingRef', 'accountantNote', 'headAccountantNote'] as const;
 // Opaque reference, stored byte-for-byte like every DataMan-style ref (max 40 like the brief's refs).
 const opaqueRef = z.string().trim().min(1).max(40);
+// B-11: money as a decimal string with at most 2 fractional digits (never a JS number).
+const moneySchema = z.string().regex(/^(0|[1-9]\d{0,11})(\.\d{1,2})?$/, 'Use a positive amount with at most 2 decimal places.');
 export const accountingActionSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('start_accounting') }).strict(),
   z.object({ kind: z.literal('submit_to_head_accountant'), confirmComplete: z.literal(true), accountantNote: z.string().trim().max(1000).optional() }).strict(),
@@ -46,6 +48,15 @@ export const accountingActionSchema = z.discriminatedUnion('kind', [
   // accounting_approved, and bill_posted is terminal for accounting actions.
   z.object({ kind: z.literal('post_bill'), billRef: opaqueRef, note: z.string().trim().max(500).optional() }).strict(),
   z.object({ kind: z.literal('correct_accounting'), field: z.enum(accountingFields), value: z.string().trim().max(1000), reason: z.string().trim().min(1).max(500) }).strict(),
+  // B-11: optional staff-typed money fields. At least one must be present; values are
+  // decimal strings with at most 2 fractional digits; clearing a field sends null.
+  z.object({
+    kind: z.literal('record_amounts'),
+    invoiceAmount: moneySchema.nullable().optional(),
+    gstAmount: moneySchema.nullable().optional(),
+    tdsAmount: moneySchema.nullable().optional(),
+    netAmount: moneySchema.nullable().optional(),
+  }).strict().refine(value => ['invoiceAmount', 'gstAmount', 'tdsAmount', 'netAmount'].some(field => (value as Record<string, unknown>)[field] !== undefined), { message: 'Enter at least one amount.' }),
 ]);
 export type AccountingAction = z.infer<typeof accountingActionSchema>;
 

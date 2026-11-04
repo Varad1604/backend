@@ -122,6 +122,10 @@ export function AccountingPanel({ p, onChanged, interactive }: {
     && (p.status === 'with_accounting' || isHead);
   const canCorrectHeadNote = canCorrect && isHead;
 
+  // B-11: staff-typed amounts (optional, none required; nothing is calculated).
+  const emptyAmounts = { invoiceAmount: '', gstAmount: '', tdsAmount: '', netAmount: '' };
+  const [amounts, setAmounts] = useState(emptyAmounts);
+  const [amountErrs, setAmountErrs] = useState<Record<string, string>>({});
   const [dlg, setDlg] = useState<'post' | 'approve' | 'return' | 'handover' | null>(null);
   const [correcting, setCorrecting] = useState<{ field: AccountingField; current: string | null } | null>(null);
   const [billRef, setBillRef] = useState('');
@@ -192,6 +196,26 @@ export function AccountingPanel({ p, onChanged, interactive }: {
       const next = await run({ kind: 'submit_to_head_accountant', confirmComplete: true, ...(note.trim() ? { accountantNote: note } : {}) }, 'handover');
       if (next) onChanged('Handed over to the Head Accountant.', next);
     }
+  }
+  async function saveAmounts() {
+    const money = /^(0|[1-9]\d{0,11})(\.\d{1,2})?$/;
+    const ex: Record<string, string> = {};
+    for (const field of ['invoiceAmount', 'gstAmount', 'tdsAmount', 'netAmount'] as const) {
+      const value = amounts[field].trim();
+      if (value && !money.test(value)) ex[field] = 'Use a positive amount with at most 2 decimal places.';
+    }
+    setAmountErrs(ex);
+    if (Object.keys(ex).length) return;
+    const payload: { kind: 'record_amounts' } & Record<string, string | null> = { kind: 'record_amounts' };
+    for (const field of ['invoiceAmount', 'gstAmount', 'tdsAmount', 'netAmount'] as const) {
+      const typed = amounts[field].trim();
+      if (!typed) continue; // untouched fields are omitted, never nulled by accident
+      payload[field] = typed;
+    }
+    if (Object.keys(payload).length === 1) { setAmountErrs({ value: 'Type at least one amount.' }); return; }
+    const r = await w.run('amounts', (k) => api.accountingAction(p.id, payload, opts(k)));
+    if (r.ok) { setAmounts(emptyAmounts); onChanged('Amounts saved with an audit entry. Nothing is calculated.', r.data); }
+    else if (r.error?.code === 'VALIDATION_FAILED') setAmountErrs(r.error.fields);
   }
   async function confirmCorrection() {
     if (!correcting) return;
@@ -270,6 +294,29 @@ export function AccountingPanel({ p, onChanged, interactive }: {
             </div>
           )}
           {canCorrect && p.status === 'verified' && <Note>Start accounting before entering the reference.</Note>}
+
+          {/* B-11: amounts card — editable while with Accounts (Head Accountant while with them), locked once approved. */}
+          {acc && (
+            <div className="mt-6 rounded-xl border border-rule bg-surface p-4">
+              <p className="kicker mb-1">Amounts (as per the papers)</p>
+              <p className="mb-3 text-[15px] text-muted">Entered by staff. The system never calculates these. <span lang="mr">रक्कम कर्मचाऱ्यानी भरावी; प्रणाली स्वतः हिशोब करत नाही.</span></p>
+              {p.status === 'accounting_approved' || p.status === 'bill_posted' ? (
+                <Note>B-12: the amounts are locked once the accounting is approved.</Note>
+              ) : (
+                <>
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <TextField label="Invoice amount" inputMode="decimal" maxLength={14} value={amounts.invoiceAmount} onChange={(e) => setAmounts((x) => ({ ...x, invoiceAmount: e.target.value }))} error={amountErrs.invoiceAmount} hint={`Current: ${p.accounting?.invoiceAmount ?? '—'}`} />
+                    <TextField label="GST amount" inputMode="decimal" maxLength={14} value={amounts.gstAmount} onChange={(e) => setAmounts((x) => ({ ...x, gstAmount: e.target.value }))} error={amountErrs.gstAmount} hint={`Current: ${p.accounting?.gstAmount ?? '—'}`} />
+                    <TextField label="TDS amount" inputMode="decimal" maxLength={14} value={amounts.tdsAmount} onChange={(e) => setAmounts((x) => ({ ...x, tdsAmount: e.target.value }))} error={amountErrs.tdsAmount} hint={`Current: ${p.accounting?.tdsAmount ?? '—'}`} />
+                    <TextField label="Net amount" inputMode="decimal" maxLength={14} value={amounts.netAmount} onChange={(e) => setAmounts((x) => ({ ...x, netAmount: e.target.value }))} error={amountErrs.netAmount} hint={`Current: ${p.accounting?.netAmount ?? '—'}`} />
+                  </div>
+                  <div className="mt-3 flex justify-end">
+                    <Button size="sm" onClick={saveAmounts} loading={w.busy === 'amounts'}>Save amounts</Button>
+                  </div>
+                </>
+              )}
+            </div>
+          )}
 
           {/* Stage actions — sticky bottom bar (Part B). */}
           {(canWork || canHead || canPost) && (
