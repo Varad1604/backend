@@ -172,7 +172,9 @@ export function AccountingPanel({ p, onChanged, interactive }: {
   }
 
   function openCorrect(field: AccountingField, current: string | null) {
-    setCorrecting({ field, current }); setValue(''); setReason(''); setErrs({}); w.setError(null);
+    // F-13: the FIRST entry of a value is normal data entry (no reason ceremony) — the audit
+    // still records it; a reason is asked only when something already on file is changed.
+    setCorrecting({ field, current }); setValue(''); setReason(current === null ? 'Initial entry.' : ''); setErrs({}); w.setError(null);
   }
   function openDialog(kind: 'post' | 'approve' | 'return' | 'handover') {
     setBillRef(''); setNote(''); setReason(''); setErrs({}); w.setError(null); setDlg(kind);
@@ -398,15 +400,22 @@ export function AccountingPanel({ p, onChanged, interactive }: {
         )}
       </FormDialog>
 
-      <FormDialog open={!!correcting} busy={!!w.busy} onCancel={() => setCorrecting(null)} onConfirm={confirmCorrection} title="Correct with reason"
-        confirmLabel="Record correction">
+      <FormDialog open={!!correcting} busy={!!w.busy} onCancel={() => setCorrecting(null)} onConfirm={confirmCorrection}
+        title={correcting?.current === null ? 'Enter accounting details' : 'Correct with reason'}
+        confirmLabel={correcting?.current === null ? 'Save' : 'Record correction'} wide={correcting?.field !== 'accountingRef'}>
         <WriteError error={w.error?.code === 'VALIDATION_FAILED' ? null : w.error} onReload={() => { setCorrecting(null); onChanged(''); }} />
         <p>Current value: <span className="font-mono font-medium text-ink">{correcting?.current ?? '—'}</span></p>
         <TextField label={correcting?.field === 'accountingRef' ? 'New accounting reference' : correcting?.field === 'accountantNote' ? 'New accountant note' : 'New Head Accountant note'}
           required mono={correcting?.field === 'accountingRef'} maxLength={correcting?.field === 'accountingRef' ? 40 : 1000}
           value={value} onChange={(e) => setValue(e.target.value)} error={errs.value} />
-        <TextAreaField label="Reason (kept in the audit history)" required rows={2} maxLength={500} value={reason} onChange={(e) => setReason(e.target.value)} error={errs.reason} />
-        <Note>Every correction keeps the old value, the new value, the reason, who and when. Nothing is overwritten silently.</Note>
+        {correcting?.current === null ? (
+          <Note>The first entry is saved with "Initial entry." in the audit history — no reason needed yet.</Note>
+        ) : (
+          <>
+            <TextAreaField label="Reason (kept in the audit history)" required rows={2} maxLength={500} value={reason} onChange={(e) => setReason(e.target.value)} error={errs.reason} />
+            <Note>Every correction keeps the old value, the new value, the reason, who and when. Nothing is overwritten silently.</Note>
+          </>
+        )}
       </FormDialog>
     </Card>
   );

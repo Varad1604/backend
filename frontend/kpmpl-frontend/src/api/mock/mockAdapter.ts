@@ -1103,6 +1103,20 @@ export const mockAdapter: ReceivingApi = {
         logPkg(p, u.displayName, 'Sent to Head Accountant', action.accountantNote?.trim() ? `Accountant handed over. Note: ${action.accountantNote.trim()}` : 'Accountant confirmed the accounting entries are complete.');
         break;
       }
+      // F-18 parity: the Head Accountant can return a package to Head Office with the failed checks.
+      case 'return_to_ho': {
+        const u = requireCap('accounting.approve', db);
+        if (p.status !== 'with_head_accountant' && p.status !== 'accounting_approved') throw rule('Only a package with the Head Accountant can be returned to Head Office.');
+        checkReason(fields, 'reason', action.reason, 'returning it to Head Office');
+        if (!action.failedChecks.length) fields.failedChecks = 'Choose at least one check that failed.';
+        fail(fields);
+        p.status = 'verified';
+        acc!.stage = 'with_accountant';
+        acc!.approvedBy = null; // B-12: a return clears a stale approval
+        acc!.approvedAt = null;
+        logPkg(p, u.displayName, 'Returned to Head Office', `Returned to Head Office: ${action.reason.trim()} (failed: ${action.failedChecks.join(', ')})`);
+        break;
+      }
       case 'return_to_accountant': {
         const u = requireCap('accounting.approve', db);
         if (p.status !== 'with_head_accountant') throw rule('Only a package with the Head Accountant can be returned.');

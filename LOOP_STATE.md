@@ -5,12 +5,12 @@ Re-read at the start of every cycle. Mark items `[x] FIXED`, `[x] FIXED (already
 ## Phase 3, Medium
 - [x] B-11 FIXED — additive migration 20261104210000_accounting_money_fields (4 nullable decimals), record_amounts action + view + UI inputs + mock parity; OQ-2 logged
 - [x] B-12 FIXED — corrections/amounts locked once accounting_approved; return_to_ho clears approvedBy/At
-- [ ] B-13 no ERP milestone confirm/reverse after bill_posted
+- [p] B-13 PARKED — blocking ERP milestones after bill_posted would remove an action HO staff can perform today (late manual DataMan confirmations); stricter-option rule → OQ-8
 - [ ] B-14 no gross weight change after exit
 - [x] B-15 FIXED — qc.service submit+decide reject after exit or once the package is past HO verification
 - [ ] B-16 close audit trail gaps, every state change audited
 - [x] B-17 FIXED — fail-open stores scanStatus 'unscanned' (never served, never resolves a checklist row)
-- [ ] B-18 refuse default secrets in production
+- [x] B-18 FIXED — production refuses the stock S3 secret and well-known weak app passwords; env.spec.ts covers it
 - [x] B-19 FIXED — policy.ts gate keeps overview.view (DB never removed it; keep-today's-access rule); ensureRole/seed already sync from policy.ts; OQ-3
 - [ ] B-20 sync OpenAPI with routes and add the new error codes
 - [x] B-21 FIXED — correct() checks duplicates (advisory lock + 409 DUPLICATE_CANDIDATE) when the ref changes
@@ -22,12 +22,12 @@ Re-read at the start of every cycle. Mark items `[x] FIXED`, `[x] FIXED (already
 - [x] F-09 FIXED (already, post-B-28) — the button is gated by the Plant Head approval capability, which is what the route now requires
 - [x] F-11 FIXED — useWrite rotates the key on unambiguous failures; keeps it only for network/server-error ambiguity
 - [x] F-12 FIXED — checks state re-syncs on every write response and reload; deeper root cause fixed: the checks endpoint wrote unknown Prisma args (guaranteed 500) and the view lacked accountingChecks (migration 20261104223000_accounting_check_details)
-- [ ] F-13 enter the accounting reference normally
+- [x] F-13 FIXED — first entry of a value is normal data entry (audit notes 'Initial entry.'); a reason is asked only for changes
 - [x] F-14 FIXED — home counters come from the server-side overview (SQL-computed), no 500-row fetch
 - [x] F-15 FIXED — blank invoiceRef is omitted on package create (added later via the existing update path)
 - [x] F-16 FIXED — PackageStatusTag falls back to the raw status; owner lookups use a safe accessor
 - [x] F-17 FIXED (via F-12) — the button was dead because the check state never re-synced after reloads
-- [ ] F-18 mock and http adapters behave the same
+- [x] F-18 FIXED — mock return_to_ho parity added; record_amounts/checks/states already mirrored (mock inputs typed to the shared contract)
 
 ## Phase 4, Low
 - [ ] B-25 remaining Prisma errors → 409/404
