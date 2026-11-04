@@ -21,7 +21,7 @@ export const userDto = (user: UserWithRoles) => ({ id: user.id, username: user.e
 const hash = (value: string) => createHash('sha256').update(value).digest('hex');
 const equal = (a: string, b: string) => a.length === b.length && timingSafeEqual(Buffer.from(a), Buffer.from(b));
 const credentials = (sessionId: string) => ({ refreshToken: sessionId + '.' + randomBytes(32).toString('base64url'), csrfToken: randomBytes(32).toString('base64url') });
-export interface SessionContext { ip: string; userAgent?: string; clientType: 'web' | 'mobile' }
+export interface SessionContext { ip: string; sessionId?: string; userAgent?: string; clientType: 'web' | 'mobile' }
 
 @Injectable()
 export class AuthService {
@@ -47,15 +47,16 @@ export class AuthService {
     return current;
   }
   async login(username: string, password: string, context: SessionContext) {
-    // Brief §3: 5/min per IP+username; lockout is checked per account.
+    // Brief §3: 5/min per IP+username. B-32: the failure lockout is per IP+account — a
+    // third party can no longer lock a victim out of their account from a different IP.
     await this.limits.limitLogin(context.ip, username);
-    await this.limits.checkAccount(username);
+    await this.limits.checkAccount(username, context.ip);
     // R-22: usernames are unique case-insensitively (stored lowercase, legacy rows may be uppercase).
     const user = await this.prisma.user.findUnique({ where: { employeeCode: username }, include: includeRoles })
       ?? await this.prisma.user.findUnique({ where: { employeeCode: username.toLowerCase() }, include: includeRoles });
     const valid = await this.passwords.verify(password, user?.passwordHash);
     if (!valid || !user?.isActive) {
-      await this.limits.failure(username);
+      await this.limits.failure(username, context.ip);
       await this.transaction(tx => this.audit.append(tx, { entityType: 'AuthAttempt', entityId: hash(username), action: 'login_failed' }));
       throw new UnauthorizedException('Username or password is incorrect.');
     }
@@ -76,7 +77,7 @@ export class AuthService {
       await this.audit.append(tx, { entityType: 'Session', entityId: id, actorId: user.id, action: 'login', newValue: { clientType: context.clientType } });
       return userDto(current);
     });
-    await this.limits.success(username);
+    await this.limits.success(username, context.ip);
     return { ...secrets, accessToken: this.tokens.issue(user.id, id), expiresInSec: 900 as const, user: result };
   }
   async authenticate(token: string): Promise<Actor> {
@@ -97,7 +98,9 @@ export class AuthService {
   // Transitional non-browser refresh. Browser clients use the session cookie and sign in
   // again when it expires; the JS-readable CSRF cookie was removed with CONTRACT_DIFF #119A.
   async refresh(token: string, context: SessionContext) {
-    await this.limits.limitPerSession(context.ip); // transitional route: keyed per presented token context
+    // B-39: keyed per presented session, not per IP — a shared NAT must not let one client
+    // exhaust every other client's refresh budget.
+    await this.limits.limitPerSession(context.sessionId ?? context.ip);
     const id = token.split('.')[0];
     if (!id || !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(id)) throw new UnauthorizedException('Invalid or expired session.');
     const secrets = credentials(id);
@@ -144,7 +147,9 @@ export class AuthService {
     if (!await this.passwords.verify(currentPassword, user.passwordHash)) throw new UnauthorizedException('Current password is incorrect.');
     const passwordHash = await this.passwords.hash(newPassword);
     // Brief §3: the change is a write, so it consumes an Idempotency-Key like every other write.
-    return this.identityWrite(actor, 'auth.self', '/auth/change-password', key, { targetId: actor.userId }, async tx => {
+    // B-29: the idempotency scope includes the NEW password — two changes with the same key
+    // but different target passwords are different writes, not a replay.
+    return this.identityWrite(actor, 'auth.self', '/auth/change-password', key, { targetId: actor.userId, newPasswordHash: passwordHash.slice(0, 16) }, async tx => {
       await this.lock(tx);
       await tx.user.update({ where: { id: actor.userId }, data: { passwordHash, mustChangePassword: false } });
       await tx.session.updateMany({ where: { userId: actor.userId, id: { not: actor.sessionId }, revokedAt: null }, data: { revokedAt: new Date() } });

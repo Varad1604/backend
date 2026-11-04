@@ -9,7 +9,9 @@ import { env } from './config/env';
 async function bootstrap(): Promise<void> {
   const app = await NestFactory.create<NestFastifyApplication>(
     AppModule,
-    new FastifyAdapter({ logger: { redact: ['req.headers.authorization', 'req.headers.cookie', 'res.headers["set-cookie"]'] }, genReqId: () => randomUUID(), connectionTimeout: 10_000, requestTimeout: 30_000, bodyLimit: 102_400 }),
+    // B-31: trust the front proxy (Caddy/nginx) so req.ip is the client, not the proxy —
+    // per-IP rate limits are meaningless otherwise.
+    new FastifyAdapter({ trustProxy: true, logger: { redact: ['req.headers.authorization', 'req.headers.cookie', 'res.headers["set-cookie"]'] }, genReqId: () => randomUUID(), connectionTimeout: 10_000, requestTimeout: 30_000, bodyLimit: 102_400 }),
   );
 
   await configureHttp(app);

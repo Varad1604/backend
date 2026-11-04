@@ -21,6 +21,8 @@ export class AuthController {
   // SameSite=Lax, Path=/, no Domain (CONTRACT_DIFF #117-#119; the transitional refresh and
   // JS-readable CSRF cookies were removed with decision A).
   private cookies(reply: FastifyReply, refreshToken: string) {
+    // B-30: __Host- prefix demands Secure; production never falls back to an insecure cookie.
+    if (env.NODE_ENV === 'production' && env.COOKIE_SECURE !== 'true') throw new Error('COOKIE_SECURE=false is forbidden in production (the __Host- cookie requires Secure).');
     reply.setCookie('__Host-kpmpl_sid', refreshToken, { secure: env.COOKIE_SECURE === 'true', httpOnly: true, sameSite: 'lax', path: '/', maxAge: 12 * 3_600 });
   }
   @Public() @Post('login') @HttpCode(200)

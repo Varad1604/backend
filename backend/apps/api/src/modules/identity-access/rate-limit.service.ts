@@ -21,13 +21,15 @@ export class RateLimitService {
     const n = await this.redis.client.eval(COUNTER, 1, this.key('login:' + ip + ':' + username.toLowerCase()), 60) as number;
     if (n > 5) throw tooMany();
   }
-  async checkAccount(username: string): Promise<void> {
-    if (await this.redis.client.exists(this.key('lock:' + username.toLowerCase()))) throw tooMany();
+  // B-32: the failure lockout is scoped to IP+account, so an attacker cannot lock a victim
+  // out of their account from a different IP. A legitimate user from their own IP is unaffected.
+  async checkAccount(username: string, ip: string): Promise<void> {
+    if (await this.redis.client.exists(this.key('lock:' + ip + ':' + username.toLowerCase()))) throw tooMany();
   }
-  async failure(username: string): Promise<void> {
-    await this.redis.client.eval(FAILURE, 2, this.key('fail:' + username.toLowerCase()), this.key('lock:' + username.toLowerCase()));
+  async failure(username: string, ip: string): Promise<void> {
+    await this.redis.client.eval(FAILURE, 2, this.key('fail:' + ip + ':' + username.toLowerCase()), this.key('lock:' + ip + ':' + username.toLowerCase()));
   }
-  async success(username: string): Promise<void> {
-    await this.redis.client.del(this.key('fail:' + username.toLowerCase()), this.key('lock:' + username.toLowerCase()));
+  async success(username: string, ip: string): Promise<void> {
+    await this.redis.client.del(this.key('fail:' + ip + ':' + username.toLowerCase()), this.key('lock:' + ip + ':' + username.toLowerCase()));
   }
 }

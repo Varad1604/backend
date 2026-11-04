@@ -13,9 +13,11 @@ const domain = (message: string, fields?: Record<string, string>) => new HttpExc
   ? { code: 'VALIDATION_FAILED', message: 'Please check the highlighted fields.', fields }
   : { code: 'DOMAIN_RULE', message }, 422);
 // Brief §5.4/R-07: percent readings on the two fixture codes; fixed scale 2 (§3).
+// B-37: a percentage reading is bounded — 0..100 — not merely well-formed.
 const measurementSchema = z.object({
   code: z.enum(['moisture', 'impurity']),
-  value: z.string().regex(/^\d{1,3}(\.\d{1,2})?$/, 'Enter a valid reading.'),
+  value: z.string().regex(/^\d{1,3}(\.\d{1,2})?$/, 'Enter a valid reading.').refine(
+    value => Number(value) <= 100, 'A percentage reading cannot be above 100.'),
   unit: z.literal('percent'),
 }).strict();
 export const qcSubmissionSchema = z.object({

@@ -19,7 +19,7 @@ model Role {
   id          Int      @id @default(autoincrement())
   code        String   @unique // gate | qc_operator | qc_manager | gate_doc_authority | ho_accounts | plant_head | head_accounts | viewer | admin
   description String?
-  createdAt   DateTime @default(now())
+  createdAt   DateTime @db.Timestamptz @default(now())
   userRoles   UserRole[]
   capabilities RoleCapability[]
 }
@@ -28,7 +28,7 @@ model Capability {
   id          Int      @id @default(autoincrement())
   code        String   @unique
   description String?
-  createdAt   DateTime @default(now())
+  createdAt   DateTime @db.Timestamptz @default(now())
   roles       RoleCapability[]
 }
 
@@ -51,9 +51,9 @@ model User {
   mustChangePassword Boolean @default(false)
   synthetic    Boolean   @default(true)
   failedLogins Int       @default(0)
-  lockedUntil  DateTime?
-  createdAt    DateTime  @default(now())
-  updatedAt    DateTime  @updatedAt
+  lockedUntil  DateTime? @db.Timestamptz
+  createdAt    DateTime @db.Timestamptz  @default(now())
+  updatedAt    DateTime @db.Timestamptz  @updatedAt
   userRoles    UserRole[]
   sessions     Session[]
   receivingVisits ReceivingVisit[]
@@ -83,7 +83,7 @@ model UserRole {
   userId    String   @db.Uuid
   roleId    Int
   grantedBy String?
-  grantedAt DateTime @default(now())
+  grantedAt DateTime @db.Timestamptz @default(now())
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   role      Role     @relation(fields: [roleId], references: [id], onDelete: Cascade)
 
@@ -102,10 +102,10 @@ model Session {
   refreshHistory   RefreshTokenHistory[]
   userAgent        String?
   ip               String?
-  expiresAt        DateTime
-  lastSeenAt       DateTime  @default(now())
-  revokedAt        DateTime?
-  createdAt        DateTime  @default(now())
+  expiresAt        DateTime @db.Timestamptz
+  lastSeenAt       DateTime @db.Timestamptz  @default(now())
+  revokedAt        DateTime? @db.Timestamptz
+  createdAt        DateTime @db.Timestamptz  @default(now())
   user             User      @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
@@ -125,7 +125,7 @@ model AuditEvent {
   source     String   @default("app")
   prevHash   String?  @db.Char(64)
   rowHash    String   @db.Char(64)
-  recordedAt DateTime @default(now())
+  recordedAt DateTime @db.Timestamptz @default(now())
 
   @@index([entityType, entityId])
   @@index([actorId, recordedAt])
@@ -143,8 +143,8 @@ model IdempotencyRecord {
   responseStatus Int?
   responseBody   Json?
   status         String    @default("in_progress") // in_progress | completed
-  createdAt      DateTime  @default(now())
-  expiresAt      DateTime
+  createdAt      DateTime @db.Timestamptz  @default(now())
+  expiresAt      DateTime @db.Timestamptz
 
   @@unique([userId, method, path, key])
 }
@@ -152,7 +152,7 @@ model IdempotencyRecord {
 model RefreshTokenHistory {
   tokenHash String @id
   sessionId String @db.Uuid
-  expiresAt DateTime
+  expiresAt DateTime @db.Timestamptz
   session Session @relation(fields: [sessionId], references: [id], onDelete: Restrict)
   @@index([sessionId])
 }
@@ -165,14 +165,14 @@ model ReceivingVisit {
   materialDisplayName String?
   challanRef String?
   poRef String?
-  arrivedAt DateTime?
+  arrivedAt DateTime? @db.Timestamptz
   notes String?
   isDemo Boolean @default(true)
   visitStatus String @default("created")
   version Int @default(1)
   createdBy String @db.Uuid
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  createdAt DateTime @db.Timestamptz @default(now())
+  updatedAt DateTime @db.Timestamptz @updatedAt
   creator User @relation(fields: [createdBy], references: [id], onDelete: Restrict)
   weighments Weighment[]
   qcInspections QCInspection[]
@@ -190,7 +190,7 @@ model Weighment {
   value Decimal @db.Decimal(12, 3)
   unit String
   recordedBy String @db.Uuid
-  recordedAt DateTime @default(now())
+  recordedAt DateTime @db.Timestamptz @default(now())
   correctsId String? @unique @db.Uuid
   reason String?
   visit ReceivingVisit @relation(fields: [visitId], references: [id], onDelete: Restrict)
@@ -206,7 +206,7 @@ model QCInspection {
   qcStatus String @default("submitted")
   currentRevisionId String? @unique @db.Uuid
   createdBy String @db.Uuid
-  createdAt DateTime @default(now())
+  createdAt DateTime @db.Timestamptz @default(now())
   visit ReceivingVisit @relation(fields: [visitId], references: [id], onDelete: Restrict)
   creator User @relation(fields: [createdBy], references: [id], onDelete: Restrict)
   currentRevision QCRevision? @relation("CurrentQCRevision", fields: [currentRevisionId], references: [id], onDelete: Restrict)
@@ -226,7 +226,7 @@ model QCRevision {
   reason String?
   revisionReason String?
   submittedBy String @db.Uuid
-  submittedAt DateTime @default(now())
+  submittedAt DateTime @db.Timestamptz @default(now())
   supersedesId String? @unique @db.Uuid
   inspection QCInspection @relation("QCRevisions", fields: [inspectionId], references: [id], onDelete: Restrict)
   currentIn QCInspection? @relation("CurrentQCRevision")
@@ -245,7 +245,7 @@ model QCReview {
   demonstrationOnly Boolean @default(false)
   forRevision Int
   recordedBy String @db.Uuid
-  recordedAt DateTime @default(now())
+  recordedAt DateTime @db.Timestamptz @default(now())
   inspection QCInspection @relation(fields: [inspectionId], references: [id], onDelete: Restrict)
   recorder User @relation(fields: [recordedBy], references: [id], onDelete: Restrict)
   @@index([inspectionId])
@@ -256,15 +256,15 @@ model QCMeasurement {
   code String
   value Decimal @db.Decimal(5, 2)
   unit String @default("percent")
-  recordedAt DateTime @default(now())
+  recordedAt DateTime @db.Timestamptz @default(now())
   revision QCRevision @relation(fields: [revisionId], references: [id], onDelete: Restrict)
   @@index([revisionId])
 }
 model VehicleExit {
   id String @id @default(uuid()) @db.Uuid
   visitId String @unique @db.Uuid
-  physicalExitAt DateTime
-  recordedAt DateTime @default(now())
+  physicalExitAt DateTime @db.Timestamptz
+  recordedAt DateTime @db.Timestamptz @default(now())
   recordedBy String @db.Uuid
   remarks String?
   visit ReceivingVisit @relation(fields: [visitId], references: [id], onDelete: Restrict)
@@ -274,7 +274,7 @@ model GRNReference {
   id String @id @default(uuid()) @db.Uuid
   officialGrnRef String
   verifiedBy String @db.Uuid
-  recordedAt DateTime @default(now())
+  recordedAt DateTime @db.Timestamptz @default(now())
   source String @default("manual_staff_confirmation")
   verifier User @relation(fields: [verifiedBy], references: [id], onDelete: Restrict)
   links GRNLink[]
@@ -285,7 +285,7 @@ model GRNLink {
   visitId String @db.Uuid
   grnReferenceId String @db.Uuid
   createdBy String @db.Uuid
-  createdAt DateTime @default(now())
+  createdAt DateTime @db.Timestamptz @default(now())
   visit ReceivingVisit @relation(fields: [visitId], references: [id], onDelete: Restrict)
   reference GRNReference @relation(fields: [grnReferenceId], references: [id], onDelete: Restrict)
   creator User @relation(fields: [createdBy], references: [id], onDelete: Restrict)
@@ -304,9 +304,9 @@ model DocumentPackage {
   version             Int       @default(1)
   createdBy           String    @db.Uuid
   submittedBy         String?   @db.Uuid
-  submittedAt         DateTime?
-  createdAt           DateTime  @default(now())
-  updatedAt           DateTime  @updatedAt
+  submittedAt         DateTime? @db.Timestamptz
+  createdAt           DateTime @db.Timestamptz  @default(now())
+  updatedAt           DateTime @db.Timestamptz  @updatedAt
   creator             User      @relation("PackageCreator", fields: [createdBy], references: [id], onDelete: Restrict)
   submitter           User?     @relation("PackageSubmitter", fields: [submittedBy], references: [id], onDelete: Restrict)
   visits              PackageVisit[]
@@ -354,8 +354,8 @@ model DocumentFile {
   originalName String
   scanStatus   String    @default("pending_scan")
   uploadedBy   String    @db.Uuid
-  uploadedAt   DateTime  @default(now())
-  deletedAt    DateTime?
+  uploadedAt   DateTime @db.Timestamptz  @default(now())
+  deletedAt    DateTime? @db.Timestamptz
   package      DocumentPackage @relation(fields: [packageId], references: [id], onDelete: Restrict)
   uploader     User @relation(fields: [uploadedBy], references: [id], onDelete: Restrict)
   @@index([packageId, category, deletedAt])
@@ -367,8 +367,8 @@ model PackageCorrection {
   reason       String
   categories   Json
   requestedBy  String?  @db.Uuid
-  requestedAt  DateTime @default(now())
-  resolvedAt   DateTime?
+  requestedAt  DateTime @db.Timestamptz @default(now())
+  resolvedAt   DateTime? @db.Timestamptz
   responseNote String?
   package      DocumentPackage @relation(fields: [packageId], references: [id], onDelete: Restrict)
   requester    User? @relation(fields: [requestedBy], references: [id], onDelete: Restrict)
@@ -380,11 +380,11 @@ model ErpMilestone {
   type            String
   status          String    @default("pending")
   dataManRef      String?
-  erpOccurredAt   DateTime?
+  erpOccurredAt   DateTime? @db.Timestamptz
   note            String?
-  confirmedAt     DateTime?
+  confirmedAt     DateTime? @db.Timestamptz
   confirmedBy     String?   @db.Uuid
-  reversedAt      DateTime?
+  reversedAt      DateTime? @db.Timestamptz
   reversalReason  String?
   source          String    @default("manual_staff_confirmation")
   package         DocumentPackage @relation(fields: [packageId], references: [id], onDelete: Restrict)
@@ -410,13 +410,13 @@ model AccountingRecord {
   tdsAmount           Decimal? @db.Decimal(12, 2)
   netAmount           Decimal? @db.Decimal(12, 2)
   startedBy           String    @db.Uuid
-  startedAt           DateTime  @default(now())
+  startedAt           DateTime @db.Timestamptz  @default(now())
   submittedBy         String?   @db.Uuid
-  submittedAt         DateTime?
+  submittedAt         DateTime? @db.Timestamptz
   approvedBy          String?   @db.Uuid
-  approvedAt          DateTime?
+  approvedAt          DateTime? @db.Timestamptz
   postedBy            String?   @db.Uuid
-  postedAt            DateTime?
+  postedAt            DateTime? @db.Timestamptz
   package             DocumentPackage @relation(fields: [packageId], references: [id], onDelete: Restrict)
   starter             User @relation("AccountingStarter", fields: [startedBy], references: [id], onDelete: Restrict)
   submitter           User? @relation("AccountingSubmitter", fields: [submittedBy], references: [id], onDelete: Restrict)
@@ -435,7 +435,7 @@ model AccountingCorrection {
   newValue    String?
   reason      String
   correctedBy String   @db.Uuid
-  correctedAt DateTime @default(now())
+  correctedAt DateTime @db.Timestamptz @default(now())
   package     DocumentPackage @relation(fields: [packageId], references: [id], onDelete: Restrict)
   corrector   User @relation(fields: [correctedBy], references: [id], onDelete: Restrict)
   @@index([packageId, correctedAt])
@@ -450,7 +450,7 @@ model AccountingCheck {
   gstChecked Boolean  @default(false) @map("gst_checked")
   tdsChecked Boolean  @default(false) @map("tds_checked")
   checkedBy  String   @db.Uuid @map("checked_by")
-  checkedAt  DateTime @default(now()) @map("checked_at")
+  checkedAt  DateTime @db.Timestamptz @default(now()) @map("checked_at")
   billCheck  Json?    @map("bill_check")
   gstCheck   Json?    @map("gst_check")
   tdsCheck   Json?    @map("tds_check")
@@ -465,8 +465,8 @@ model ReferenceValue {
   kind      String
   value     String
   active    Boolean  @default(true)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  createdAt DateTime @db.Timestamptz @default(now())
+  updatedAt DateTime @db.Timestamptz @updatedAt
 
   @@unique([kind, value])
 }
@@ -478,7 +478,7 @@ model Reminder {
   recipient  String   @default("Plant Head")
   channel    String   @default("pending")
   recordedBy String   @db.Uuid
-  recordedAt DateTime @default(now())
+  recordedAt DateTime @db.Timestamptz @default(now())
   package    DocumentPackage @relation(fields: [packageId], references: [id], onDelete: Restrict)
   recorder   User @relation(fields: [recordedBy], references: [id], onDelete: Restrict)
 }
@@ -490,7 +490,7 @@ model PackageHistory {
   detail     String?
   source     String   @default("app")
   actorId    String   @db.Uuid
-  recordedAt DateTime @default(now())
+  recordedAt DateTime @db.Timestamptz @default(now())
   package    DocumentPackage @relation(fields: [packageId], references: [id], onDelete: Restrict)
   actor      User @relation(fields: [actorId], references: [id], onDelete: Restrict)
   @@index([packageId, recordedAt])

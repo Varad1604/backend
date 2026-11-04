@@ -12,7 +12,15 @@ export class HttpErrorFilter implements ExceptionFilter {
     // The Fastify adapter hands payload errors to this filter wrapped in a plain
     // HttpException carrying the transport status; brief §3 requires the envelope with
     // the right code on EVERY non-2xx (CONTRACT_DIFF #97).
+    // B-25: known Prisma request errors map to honest client codes instead of a 500.
+    // P2002 = unique-constraint violation → 409; P2025 = record not found → 404.
+    const prismaCode = (error as { code?: string })?.code ?? '';
+    const prismaMeta = (error as { meta?: { target?: string[] | string } })?.meta;
+    const isPrismaUnique = prismaCode === 'P2002';
+    const isPrismaNotFound = prismaCode === 'P2025';
     const statusCode = error instanceof z.ZodError ? 422
+      : isPrismaUnique ? 409
+      : isPrismaNotFound ? 404
       : error instanceof HttpException ? error.getStatus()
       : fastifyCode === 'FST_ERR_CTP_BODY_TOO_LARGE' ? 413
       : typeof (error as { statusCode?: number })?.statusCode === 'number' ? (error as { statusCode: number }).statusCode
@@ -31,9 +39,12 @@ export class HttpErrorFilter implements ExceptionFilter {
     const frameworkMessage = statusCode === 413 || fastifyCode === 'FST_ERR_CTP_BODY_TOO_LARGE' ? 'The file is larger than the upload limit.'
       : fastifyCode === 'FST_ERR_CTP_INVALID_JSON' || /not valid JSON|Unexpected token/i.test(responseMessage ?? '') ? 'The request could not be read. Reload and try again.'
       : undefined;
+    const prismaMessage = isPrismaUnique
+      ? `That value is already in use${Array.isArray(prismaMeta?.target) && prismaMeta.target.length ? ` (${prismaMeta.target.join(', ')})` : ''}. Reload and check for a duplicate.`
+      : isPrismaNotFound ? 'The record no longer exists. Reload to see the current state.' : undefined;
     const message = statusCode === 500 ? 'Something went wrong. Nothing was saved.'
-      : isZod ? 'Please check the highlighted fields.'
-      : frameworkMessage ?? responseMessage ?? (error instanceof HttpException ? error.message : 'Request failed.');
+      : prismaMessage ?? (isZod ? 'Please check the highlighted fields.'
+      : frameworkMessage ?? responseMessage ?? (error instanceof HttpException ? error.message : 'Request failed.'));
     // A 500 must never be silent: log the underlying error with the requestId so the
     // response envelope can be correlated with the server-side cause (brief §11).
     if (statusCode === 500) console.error(`[api] 500 on ${request?.method} ${request?.url} (requestId=${requestId})`, error);
@@ -45,7 +56,7 @@ export class HttpErrorFilter implements ExceptionFilter {
         : undefined;
     const meta = response !== null && typeof response === 'object' && 'meta' in response && response.meta && typeof response.meta === 'object' ? response.meta : undefined;
     // Status → code per brief §3; 400/413/415 transport errors are VALIDATION_FAILED.
-    const code = explicitCode ?? ({ 400: 'VALIDATION_FAILED', 401: 'UNAUTHENTICATED', 403: 'FORBIDDEN', 404: 'NOT_FOUND', 409: 'CONFLICT', 413: 'VALIDATION_FAILED', 415: 'VALIDATION_FAILED', 422: 'VALIDATION_FAILED', 429: 'RATE_LIMITED', 503: 'UNAVAILABLE' } as Record<number, string>)[statusCode] ?? 'SERVER_ERROR';
+    const code = explicitCode ?? (isPrismaUnique ? 'DUPLICATE_CANDIDATE' : undefined) ?? ({ 400: 'VALIDATION_FAILED', 401: 'UNAUTHENTICATED', 403: 'FORBIDDEN', 404: 'NOT_FOUND', 409: 'CONFLICT', 413: 'VALIDATION_FAILED', 415: 'VALIDATION_FAILED', 422: 'VALIDATION_FAILED', 429: 'RATE_LIMITED', 503: 'UNAVAILABLE' } as Record<number, string>)[statusCode] ?? 'SERVER_ERROR';
     void reply.status(statusCode).send({ error: { code, message,
       ...(fields ? { fields } : {}), ...(statusCode === 413 && !fields?.file ? { fields: { ...(fields ?? {}), file: 'The file is larger than the upload limit.' } } : {}), ...(meta ? { meta } : {}), requestId } });
   }
