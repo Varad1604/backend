@@ -489,6 +489,26 @@ paths:
       responses:
         '200': { $ref: '#/components/responses/PackageView' }
         '422': { $ref: '#/components/responses/Error' }
+  /document-packages/{id}/erp-milestones/plant-head-approval:
+    parameters: [{ name: id, in: path, required: true, schema: { type: string, format: uuid } }]
+    post:
+      tags: [head-office]
+      summary: Plant Head GRN approval milestone (erp.plant_head_approval)
+      parameters:
+        - { $ref: '#/components/parameters/IdempotencyKey' }
+        - { $ref: '#/components/parameters/IfMatch' }
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/ErpMilestoneInput' } } }
+      responses:
+        '200': { $ref: '#/components/responses/PackageView' }
+        '422': { $ref: '#/components/responses/Error' }
+  /accounting/queue:
+    get:
+      tags: [accounting]
+      summary: Packages from HO verification onward (accounting.inbox), updatedAt DESC
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { type: object, required: [data], properties: { data: { type: array, items: { $ref: '#/components/schemas/DocumentPackageView' } } } } } } }
   /head-office/cases/{id}/erp-milestones:
     parameters: [{ name: id, in: path, required: true, schema: { type: string, format: uuid } }]
     post:
@@ -813,6 +833,7 @@ components:
         - { type: object, required: [kind], properties: { kind: { const: approve_accounting }, headAccountantNote: { type: string, maxLength: 1000 } }, additionalProperties: false }
         - { type: object, required: [kind, billRef], properties: { kind: { const: post_bill }, billRef: { type: string, minLength: 1, maxLength: 40 }, note: { type: string, maxLength: 500 } }, additionalProperties: false }
         - { type: object, required: [kind, field, value, reason], properties: { kind: { const: correct_accounting }, field: { type: string, enum: [accountingRef, accountantNote, headAccountantNote] }, value: { type: string, maxLength: 1000 }, reason: { type: string, minLength: 1, maxLength: 500 } }, additionalProperties: false }
+        - { type: object, required: [kind], properties: { kind: { const: record_amounts }, invoiceAmount: { type: [string, 'null'], pattern: '^(0|[1-9][0-9]{0,11})([.][0-9]{1,2})?$' }, gstAmount: { type: [string, 'null'], pattern: '^(0|[1-9][0-9]{0,11})([.][0-9]{1,2})?$' }, tdsAmount: { type: [string, 'null'], pattern: '^(0|[1-9][0-9]{0,11})([.][0-9]{1,2})?$' }, netAmount: { type: [string, 'null'], pattern: '^(0|[1-9][0-9]{0,11})([.][0-9]{1,2})?$' } }, additionalProperties: false }
     AccountingChecks:
       type: object
       required: [checks]
@@ -839,6 +860,10 @@ components:
         accountingRef: { type: [string, 'null'] }
         accountantNote: { type: [string, 'null'] }
         headAccountantNote: { type: [string, 'null'] }
+        invoiceAmount: { type: [string, 'null'] }
+        gstAmount: { type: [string, 'null'] }
+        tdsAmount: { type: [string, 'null'] }
+        netAmount: { type: [string, 'null'] }
         billRef: { type: [string, 'null'] }
         postedAt: { type: [string, 'null'], format: date-time }
     AccountingCheckEntry:
@@ -858,7 +883,7 @@ components:
           type: object
           required: [code, message, requestId]
           properties:
-            code: { type: string, enum: [UNAUTHENTICATED, FORBIDDEN, NOT_FOUND, VALIDATION_FAILED, DUPLICATE_CANDIDATE, VERSION_CONFLICT, DOMAIN_RULE, RATE_LIMITED, SERVER_ERROR] }
+            code: { type: string, enum: [UNAUTHENTICATED, FORBIDDEN, NOT_FOUND, VALIDATION_FAILED, DUPLICATE_CANDIDATE, VERSION_CONFLICT, DOMAIN_RULE, RATE_LIMITED, IDEMPOTENCY_IN_PROGRESS, SERVER_ERROR] }
             message: { type: string }
             fields: { type: object, additionalProperties: { type: string } }
             requestId: { type: string }

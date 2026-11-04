@@ -26,3 +26,4 @@ Phase 1-2 uncommitted work as the true starting state).
 - F-08/F-11/F-12/F-14/F-15/F-16/F-17: capability-filtered home cards; idempotency-key rotation on unambiguous failures; check-state re-sync (dead Send button fixed); home counters via server overview (no 500-row cap); blank invoice omitted on create; unknown-status-safe tracker. Frontend: tsc 0 errors, 84/84, lint 0 errors.
 - B-16/B-26 + migration 20261104223000_accounting_check_details: accounting-checks endpoint rewritten (was a guaranteed 500), audit appends added, view exposes accountingChecks, head-accountant cases use real states. F-07 grants aligned. Backend 62/62, 0 skipped.
 - B-13 PARKED (OQ-8); B-18 production secret refusals + env.spec; F-13 normal first entry; F-18 mock return_to_ho parity.
+- B-20: OpenAPI snapshot synced (missing routes + record_amounts + money fields + IDEMPOTENCY_IN_PROGRESS); contract test updated.

@@ -12,7 +12,7 @@ Re-read at the start of every cycle. Mark items `[x] FIXED`, `[x] FIXED (already
 - [x] B-17 FIXED — fail-open stores scanStatus 'unscanned' (never served, never resolves a checklist row)
 - [x] B-18 FIXED — production refuses the stock S3 secret and well-known weak app passwords; env.spec.ts covers it
 - [x] B-19 FIXED — policy.ts gate keeps overview.view (DB never removed it; keep-today's-access rule); ensureRole/seed already sync from policy.ts; OQ-3
-- [ ] B-20 sync OpenAPI with routes and add the new error codes
+- [x] B-20 FIXED — snapshot gains record_amounts + money fields on AccountingInfo, /accounting/queue + /document-packages/{id}/erp-milestones/plant-head-approval routes, IDEMPOTENCY_IN_PROGRESS error code; contract test counts updated (40 paths)
 - [x] B-21 FIXED — correct() checks duplicates (advisory lock + 409 DUPLICATE_CANDIDATE) when the ref changes
 - [x] B-22 FIXED — ERP_COUNTING_STATES includes every accounting state in reports.service
 - [x] B-23 FIXED — policy.spec updated to the 8-role matrix incl. gate_doc_authority + new RBAC checks (safe default applied; OQ-4)

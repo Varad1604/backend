@@ -33,7 +33,7 @@ describe('environment schema (B-18)', () => {
     }
   });
   it('keeps the demo defaults working outside production', () => {
-    const parsed = envSchema.safeParse({ NODE_ENV: 'development', APP_MODE: 'demo', DEMO_PASSWORD: 'demopassword', DEMO_MODE: 'true' });
+    const parsed = envSchema.safeParse({ ...productionBase, NODE_ENV: 'development', APP_MODE: 'demo', DEMO_PASSWORD: 'demopassword', DEMO_MODE: 'true' });
     expect(parsed.success).toBe(true);
   });
 });

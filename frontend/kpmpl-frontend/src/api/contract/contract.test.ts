@@ -59,9 +59,12 @@ describe('frontend fixtures against the generated backend contract', () => {
     expect(paths).toContain('/accounting/cases/{id}/checks');
     expect(paths).toContain('/accounting/cases/{id}/actions');
     expect(paths).toContain('/head-accountant/cases');
-    expect(paths).not.toContain('/accounting/queue');
-    // 39 adapter calls land on 38 paths (two paths carry both a GET and a write).
-    expect(paths.length).toBe(38);
+    // B-20: the queue route is real and in use (the accountant's list endpoint), as is the
+    // Plant Head approval milestone route.
+    expect(paths).toContain('/accounting/queue');
+    expect(paths).toContain('/document-packages/{id}/erp-milestones/plant-head-approval');
+    // 40 adapter calls land on 40 paths (two paths carry both a GET and a write).
+    expect(paths.length).toBe(40);
   });
 
   it('validates every fixture visit as a ReceivingVisit', () => {
