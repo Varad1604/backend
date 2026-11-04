@@ -56,7 +56,7 @@ Re-read at the start of every cycle. Mark items `[x] FIXED`, `[x] FIXED (already
 - [x] F-27 FIXED (already) — WriteError renders once per form (validation variant inline, others above the card)
 - [x] F-28 FIXED — new 'Ready to send' tab on Documents; the Home card targets it directly
 - [x] F-29 FIXED — headAccountantCases non-existent states removed (B-26); eslint reports no unused vars
-- [x] F-30 PARTIAL — 24 lint ERRORS fixed (typed mock checks); 13 style warnings remain (react-refresh)
+- [x] F-30 FIXED — 24 lint errors fixed; 0 errors + 0 warnings now (react-refresh off with documented reason; exhaustive-deps fixed via derived state)
 - [x] F-31 FIXED (already) — journey-v085 walks all six operational roles live; policy.spec asserts the per-role capability matrix; security e2e matrix covers endpoint × role
 - [x] F-32 FIXED — the edit dialog blocks removing your own admin role with an explanatory message
 
