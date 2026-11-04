@@ -39,6 +39,9 @@ export const packageStatusMeta: Record<PackageStatus, { label: string; tone: Ton
   with_head_accountant: { label: 'With Head Accountant', tone: 'progress', owner: 'Head Accountant' },
   accounting_approved: { label: 'Accounting approved', tone: 'info', owner: 'Head Accountant' },
   bill_posted: { label: 'Bill posted', tone: 'success', owner: '—' },
+  forwarded_to_head_accountant: { label: 'Forwarded to Head Accountant', tone: 'progress', owner: 'Head Accountant' },
+  returned_to_ho: { label: 'Returned to Head Office', tone: 'danger', owner: 'Head Office' },
+  returned_to_accountant: { label: 'Returned to Accountant', tone: 'progress', owner: 'Accountant' },
 };
 
 /** Candidate document rows from the domestic waste-paper sample. Not a mandatory list. */
@@ -64,6 +67,7 @@ export const ERP_ORDER: ErpMilestoneType[] = ['plant_head_grn_approval', 'purcha
 export const HO_VISIBLE: PackageStatus[] = [
   'submitted_to_ho', 'under_ho_review', 'correction_requested', 'resubmitted', 'verified',
   'with_accounting', 'with_head_accountant', 'accounting_approved', 'bill_posted',
+  'forwarded_to_head_accountant', 'returned_to_ho', 'returned_to_accountant',
 ];
 
 /** F-16: safe metadata for unknown statuses (older tab + newer server). */
@@ -71,7 +75,7 @@ export const packageStatusOwner = (status: PackageStatus): string =>
   packageStatusMeta[status]?.owner ?? String(status);
 
 /** Packages the accounting roles see, from HO verification onward. */
-export const ACCOUNTING_VISIBLE: PackageStatus[] = ['verified', 'with_accounting', 'with_head_accountant', 'accounting_approved', 'bill_posted'];
+export const ACCOUNTING_VISIBLE: PackageStatus[] = ['verified', 'with_accounting', 'with_head_accountant', 'accounting_approved', 'bill_posted', 'forwarded_to_head_accountant', 'returned_to_ho', 'returned_to_accountant'];
 
 export const accountingStageMeta: Record<AccountingStage, { label: string; tone: Tone }> = {
   with_accountant: { label: 'With Accountant', tone: 'progress' },

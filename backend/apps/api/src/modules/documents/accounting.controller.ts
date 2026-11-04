@@ -27,7 +27,7 @@ export class AccountingController {
    */
   @Post('accounting/cases/:id/checks') @Requires('accounting.review')
   async recordChecks(@Param('id') id: string, @Body() body: unknown, @Headers('if-match') _match: string | undefined, @Req() req: AuthRequest, @Res({ passthrough: true }) reply: FastifyReply) {
-    return response(reply, (await this.documents.recordAccountingChecks(req.actor, packageIdSchema.parse(id), accountingChecksSchema.parse(body))) as any);
+    return response(reply, await this.documents.recordAccountingChecks(req.actor, packageIdSchema.parse(id), accountingChecksSchema.parse(body)));
   }
 
   /** Accounting workflow action at the accounting-cases URL (mirrors POST /document-packages/:id/accounting).

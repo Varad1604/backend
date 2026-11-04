@@ -1,9 +1,9 @@
 {
   "name": "kpmpl-gate-to-bill-frontend",
   "private": true,
-  "version": "0.6.0",
+  "version": "0.8.4",
   "type": "module",
-  "description": "KPMPL Integrated Gate-to-Bill Workflow Management System — web frontend (Module 1 + Module 2). Backend-ready: mock (default, synthetic data) or http adapter per the backend build brief.",
+  "description": "KPMPL Integrated Gate-to-Bill Workflow Management System \u2014 web frontend (Module 1 + Module 2). Backend-ready: mock (default, synthetic data) or http adapter per the backend build brief.",
   "scripts": {
     "dev": "vite",
     "build": "npm run typecheck && vite build",

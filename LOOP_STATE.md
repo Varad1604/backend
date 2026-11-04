@@ -61,8 +61,8 @@ Re-read at the start of every cycle. Mark items `[x] FIXED`, `[x] FIXED (already
 - [ ] F-32 admin can't remove their own admin role
 
 ## Phase gates
-- [ ] All Medium done → full check → bump frontend 0.8.4 → commit "release 0.8.4"
+- [x] All Medium done → full check → bump frontend 0.8.4 → commit "release 0.8.4"
 - [ ] All Low done → full check → bump frontend 0.8.5 → commit "release 0.8.5"
 
 ## Full-check log
-- (pending first run)
+- 0.8.4 gate: backend tsc OK, lint clean, vitest 67/67 (15 files, 0 skipped, incl. journey-v085); frontend tsc OK, 84/84, build OK (index-CP5zlf7b.js); journey gate→QC→exit→GRN→package→HO verify→Accountant→Head Accountant return_to_ho→re-verify→restart→approve→DataMan milestones→bill_posted passes live.

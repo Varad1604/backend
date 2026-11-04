@@ -298,7 +298,8 @@ export interface DocumentItem {
 export type PackageStatus =
   | 'draft' | 'ready_for_gate_check' | 'submitted_to_ho' | 'under_ho_review'
   | 'correction_requested' | 'resubmitted' | 'verified'
-  | 'with_accounting' | 'with_head_accountant' | 'accounting_approved' | 'bill_posted';
+  | 'with_accounting' | 'with_head_accountant' | 'accounting_approved' | 'bill_posted'
+  | 'forwarded_to_head_accountant' | 'returned_to_ho' | 'returned_to_accountant';
 
 export interface CorrectionRequest {
   id: string;

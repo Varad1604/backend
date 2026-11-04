@@ -8,7 +8,6 @@ import type { Capability } from '../identity-access/policy';
 import { conflict, IdempotentWriteService } from '../platform/idempotent-write.service';
 import { ReceivingService } from '../receiving/receiving.service';
 import { categories, categoryLabels, milestones, milestoneShort, ACCOUNTING_STATES, ACCOUNTING_VISIBLE, type AccountingAction, type PackageAction } from './document.schemas';
-import { accountingChecksSchema } from './document.schemas';
 import { createHash, randomUUID } from 'node:crypto';
 import { FileStorageService } from './file-storage.service';
 import { MalwareScannerService } from './malware-scanner.service';
@@ -46,6 +45,7 @@ const HISTORY_WORDS: Record<string, string> = {
   reminder_logged: 'Approval reminder logged',
   // Accounting workflow (upgrade 2026-11-03).
   start_accounting: 'Sent to Accounts', submit_to_head_accountant: 'Sent to Head Accountant',
+  return_to_ho: 'Returned to Head Office', forwarded_to_head_accountant: 'Forwarded to Head Accountant', returned_to_accountant: 'Returned to Accountant',
   return_to_accountant: 'Returned to Accountant', approve_accounting: 'Approved by Head Accountant',
   post_bill: 'Bill posted', accounting_corrected: 'Accounting correction recorded',
 };
@@ -281,7 +281,7 @@ export class DocumentsService {
         await tx.documentPackage.update({ where: { id }, data: { submittedBy: current.userId, submittedAt: new Date() } });
         if (resubmit) await tx.packageCorrection.updateMany({ where: { packageId: id, resolvedAt: null }, data: { resolvedAt: new Date(), responseNote: input.responseNote } });
       }
-      if (input.kind === 'start_review') { if (!['submitted_to_ho', 'resubmitted'].includes(status)) throw domain('This package is not waiting for review.'); status = 'under_ho_review'; }
+      if (input.kind === 'start_review') { if (!['submitted_to_ho', 'resubmitted', 'returned_to_ho'].includes(status)) throw domain('This package is not waiting for review.'); status = 'under_ho_review'; }
       if (input.kind === 'request_correction') {
         // R-17: only under review, reason + at least one category; rows are marked issue.
         if (status !== 'under_ho_review') throw domain('Start the review before requesting a correction.');
@@ -392,9 +392,13 @@ export class DocumentsService {
             ? 'Accounting has already started on this package.'
             : 'Only a Head-Office-verified package can move to Accounts.');
         }
-        await tx.accountingRecord.create({ data: { packageId: id, stage: 'with_accountant', startedBy: current.userId } });
+        // B-12: a package returned to HO and re-verified RESTARTS accounting — the record
+        // already exists, so upsert the stage instead of hitting the unique constraint.
+        const existingRecord = await tx.accountingRecord.findUnique({ where: { packageId: id } });
+        if (existingRecord) await tx.accountingRecord.update({ where: { packageId: id }, data: { stage: 'with_accountant' } });
+        else await tx.accountingRecord.create({ data: { packageId: id, stage: 'with_accountant', startedBy: current.userId } });
         await tx.documentPackage.update({ where: { id }, data: { status: 'with_accounting' } });
-        detail = 'Documents verified by Head Office. Accounting review started.';
+        detail = existingRecord ? 'Accounting restarted after the Head Office re-verified the package.' : 'Documents verified by Head Office. Accounting review started.';
       }
 
       if (input.kind === 'submit_to_head_accountant') {
@@ -414,9 +418,10 @@ export class DocumentsService {
       if (input.kind === 'return_to_ho') {
         if (status !== 'with_head_accountant' && status !== 'accounting_approved') throw domain('Only a package with the Head Accountant can be returned to Head Office.');
         // B-12: a return clears a stale approval so the record never claims approval it lost.
+        // The package goes to 'returned_to_ho' (Phase 1-2 rule) — Head Office re-verifies from there.
         await tx.accountingRecord.update({ where: { packageId: id }, data: { stage: 'with_accountant', approvedBy: null, approvedAt: null } });
-        await tx.documentPackage.update({ where: { id }, data: { status: 'verified' } });
-        detail = `Returned to Head Office: ${input.reason.trim()} (failed: ${(input as any).failedChecks?.join(', ')})`;
+        await tx.documentPackage.update({ where: { id }, data: { status: 'returned_to_ho' } });
+        detail = `Returned to Head Office: ${input.reason.trim()} (failed: ${input.kind === 'return_to_ho' ? input.failedChecks.join(', ') : ''})`;
       }
 
       if (input.kind === 'approve_accounting') {
@@ -493,7 +498,7 @@ export class DocumentsService {
       if (input.kind === 'return_to_accountant') {
         await this.audit.append(tx, { entityType: 'DocumentPackage', entityId: id, actorId: current.userId, action: input.kind, reason: input.reason, oldValue: { status }, newValue: { status: 'with_accounting' } });
       } else if (input.kind === 'return_to_ho') {
-        await this.audit.append(tx, { entityType: 'DocumentPackage', entityId: id, actorId: current.userId, action: input.kind, reason: (input as any).reason, oldValue: { status }, newValue: { status: 'verified' } });
+        await this.audit.append(tx, { entityType: 'DocumentPackage', entityId: id, actorId: current.userId, action: input.kind, reason: input.reason, oldValue: { status }, newValue: { status: 'returned_to_ho' } });
       } else {
         await this.audit.append(tx, { entityType: 'DocumentPackage', entityId: id, actorId: current.userId, action: input.kind, oldValue: { status }, newValue: { status: input.kind === 'start_accounting' ? 'with_accounting' : input.kind === 'submit_to_head_accountant' ? 'with_head_accountant' : 'accounting_approved' } });
       }
@@ -583,7 +588,9 @@ export class DocumentsService {
         data: { packageId: id, actorId: actor.userId, action: 'accounting_checks_recorded',
           detail: `${Object.entries(changes).map(([key, value]) => `${key === 'billPassed' ? 'Bill passed' : key === 'gstChecked' ? 'GST checked' : 'TDS checked'}: ${value === true ? 'ok' : 'pending'}`).join(', ')}`, source: 'app' },
       });
-      return { status: 200, body: json({ data: await this.present(tx, id) }) };
+      // Note: this write does not go through the idempotency service (B-33 tracks that gap);
+      // it is still one transaction with an audit append. replayed is always false here.
+      return { status: 200, body: json({ data: await this.present(tx, id) }), replayed: false };
     });
     return tx;
   }

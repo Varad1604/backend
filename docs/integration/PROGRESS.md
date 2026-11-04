@@ -27,3 +27,4 @@ Phase 1-2 uncommitted work as the true starting state).
 - B-16/B-26 + migration 20261104223000_accounting_check_details: accounting-checks endpoint rewritten (was a guaranteed 500), audit appends added, view exposes accountingChecks, head-accountant cases use real states. F-07 grants aligned. Backend 62/62, 0 skipped.
 - B-13 PARKED (OQ-8); B-18 production secret refusals + env.spec; F-13 normal first entry; F-18 mock return_to_ho parity.
 - B-20: OpenAPI snapshot synced (missing routes + record_amounts + money fields + IDEMPOTENCY_IN_PROGRESS); contract test updated.
+- RELEASE 0.8.4: all Phase 3 Medium items done; full check green (backend 67/67 incl. new journey spec, frontend 84/84, builds + lint clean); journey with return_to_ho loop passes live. Migration 20261104223000 added.
