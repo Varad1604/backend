@@ -125,7 +125,11 @@ export DATABASE_URL="${DATABASE_URL/postgres:/127.0.0.1:}" REDIS_URL=redis://127
 cd apps/api && npx vitest run
 ```
 
-## 9. Rollback
+## 9. Release commit + zip
+- v0.8.5 commit: `fd535d2` (tag `v0.8.5`); 0.8.4 commit: tagged `v0.8.4`; baseline: tag `baseline-v0.8.3`.
+- Zip: `kpmpl-v085.zip` in the workspace root (excludes node_modules, dist, .git, .env*, test-results).
+
+## 10. Rollback
 `git checkout v0.8.4` (or `baseline-v0.8.3`) + `docker compose build api && docker compose up -d api`.
 The timestamptz migration is backward-compatible in reads (naive-timestamp columns read the
 same instants); rolling back code does NOT require reverting the column types.
