@@ -297,6 +297,11 @@ describe.skipIf(!live)('Phase 3 security hardening (isolated temporary schema)',
       { method: 'POST', path: `/document-packages/${draftPackageId}/accounting`, allowed: (r) => roleCapabilities[r].includes('accounting.review'), payload: { kind: 'start_accounting' } },
       { method: 'POST', path: '/admin/users', allowed: (r) => roleCapabilities[r].includes('admin.users'), payload: { username: (prefix + '-m' + randomUUID().slice(0, 6)).toLowerCase().slice(0, 31), displayName: 'P3 Matrix', roles: ['gate'] } },
       { method: 'GET', path: '/admin/users', allowed: (r) => roleCapabilities[r].includes('admin.users') },
+      // Phase 06: the read-only DataMan ERP routes exist and are capability-gated. An
+      // allowed role reaches the adapter (503 here: no ERP credentials in this stack —
+      // never a 401/403), and every other role is refused before any ERP call is made.
+      { method: 'GET', path: '/erp/gate-entries', allowed: (r) => roleCapabilities[r].includes('erp.read') },
+      { method: 'GET', path: '/erp/gate-entries/GI-P3-MATRIX', allowed: (r) => roleCapabilities[r].includes('erp.read') },
     ];
     const failures: string[] = [];
     // Roles outer, fresh token per role: the login path keeps at most FIVE live sessions

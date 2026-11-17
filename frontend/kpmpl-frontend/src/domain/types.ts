@@ -429,3 +429,74 @@ export interface ErpMilestoneInput {
   note?: string;
   verifiedInDataManByStaff: boolean;
 }
+
+/* ---------------- ERP (DataMan) read-only — Phase 05A ---------------- */
+
+/**
+ * ERP weight. Verified: Weightment.Actual_GWeight / Tare_Weight / Net_Weight are
+ * Decimal(12,3) in kg. The value is the ERP scalar stringified — never recomputed.
+ * `null` means the related Weightment row is absent (not zero).
+ */
+export interface ErpWeight { value: string; unit: 'kg' }
+
+/** One DataMan gate entry as returned by GET /erp/gate-entries. Fields are nullable by design. */
+export interface ErpGateEntry {
+  docId: string;
+  vType: string | null;
+  vNo: string | null;
+  vDate: string | null;
+  vTime: string | null;
+  partyCode: string | null;
+  vehicleNo: string | null;
+  gateOutDate: string | null;
+  grossWeight: ErpWeight | null;
+  tareWeight: ErpWeight | null;
+  netWeight: ErpWeight | null;
+  hasWeighment: boolean;
+  hasGrn: boolean;
+  grnDate: string | null;
+  grnApprovalStatus: string | null;
+  fieldsAvailable: string[];
+}
+
+/** One related Weightment row (PChallan/GRN rows are separate — see ErpGrn). */
+export interface ErpWeighment {
+  weighmentDocId: string;
+  weighSlipNo: string | null;
+  grossWeight: ErpWeight | null;
+  tareWeight: ErpWeight | null;
+  netWeight: ErpWeight | null;
+  weighDate: string | null;
+  weighDateOut: string | null;
+}
+
+/** One related PChallan (GRN) row. 'PCHLG' is the sampled V_Type; the full set is unverified. */
+export interface ErpGrn {
+  challanDocId: string;
+  vType: string | null;
+  vNo: string | null;
+  grnDate: string | null;
+  approvalStatus: string | null;
+}
+
+/**
+ * GET /erp/gate-entries/:docId — gate entry plus every related weighment/GRN row.
+ * The detail endpoint reports `fieldsAvailable`/`fieldsMissing` in the response `meta`
+ * block; the http adapter lifts them onto the object so screens see one shape.
+ */
+export interface ErpGateEntryDetail extends ErpGateEntry {
+  weighments: ErpWeighment[];
+  grns: ErpGrn[];
+  fieldsMissing?: string[];
+}
+
+export interface ErpGateEntriesQuery { page?: number; limit?: number; docId?: string; vType?: string }
+
+/** Page envelope for the ERP list (the ERP endpoint returns meta.total/page/limit/totalPages). */
+export interface ErpGateEntryPage {
+  data: ErpGateEntry[];
+  total: number;
+  page: number;
+  limit: number;
+  totalPages: number;
+}

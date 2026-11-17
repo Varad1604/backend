@@ -18,7 +18,7 @@ import { MIN_PASSWORD_LENGTH } from '../../domain/types';
 import { deriveNet, isDecimalString } from '../../domain/decimal';
 import { DOC_CATEGORIES, ERP_ORDER, HO_VISIBLE, ACCOUNTING_VISIBLE, docCategoryMeta, erpMilestoneMeta } from '../../domain/status';
 import type {
-  CreatedUser, CreateReceivingVisitInput, DocCategory, DocumentPackage, DocumentPackageView, OverviewData, QcInspection,
+  CreatedUser, CreateReceivingVisitInput, DocCategory, DocumentPackage, DocumentPackageView, ErpGateEntry, ErpGateEntryDetail, ErpWeight, OverviewData, QcInspection,
   QcQueueItem, QcSubmitInput, ReceivingVisit, TimelineEvent, User,
 } from '../../domain/types';
 
@@ -1253,7 +1253,92 @@ export const mockAdapter: ReceivingApi = {
       return rows.map((p) => viewOf(db, p));
     })();
   },
+
+  /* ---- DataMan ERP read-only (Phase 05A) ----
+   * Synthetic fixtures that mirror the backend DTO exactly (kg units, nullable
+   * weighment/GRN, several related records). They are NOT live ERP data. */
+  async listErpGateEntries(q) {
+    await delay();
+    requireCap('erp.read');
+    const all = erpFixtures().filter((e) => (!q.docId || e.docId === q.docId) && (!q.vType || e.grns.some((g) => g.vType === q.vType)));
+    const limit = Math.min(Math.max(1, q.limit ?? 20), 100);
+    const page = Math.max(1, q.page ?? 1);
+    const start = (page - 1) * limit;
+    return {
+      data: all.slice(start, start + limit).map(toErpListItem),
+      total: all.length,
+      page,
+      limit,
+      totalPages: all.length > 0 ? Math.ceil(all.length / limit) : 0,
+    };
+  },
+
+  async getErpGateEntry(docId) {
+    await delay();
+    requireCap('erp.read');
+    const found = erpFixtures().find((e) => e.docId === docId);
+    if (!found) throw new ApiError('NOT_FOUND', `Gate entry with DocId "${docId}" not found in ERP.`, 404, {}, requestId());
+    return found;
+  },
 };
+
+/** Mock ERP gate entries covering: weighment+GRN, weighment only, neither, and several related rows.
+ * Exported for the contract drift test (Phase 06 Task 5). */
+export function erpFixtures(): ErpGateEntryDetail[] {
+  const kg = (v: string): ErpWeight => ({ value: v, unit: 'kg' });
+  const base = { vType: 'GRN', partyCode: 'P-100', fieldsAvailable: [] as string[] };
+  const baseFields = ['docId', 'vType', 'vNo', 'vDate', 'vTime', 'partyCode', 'vehicleNo', 'gateOutDate'];
+  return [
+    {
+      ...base, docId: 'DEMO-GATE-1001', vNo: 'V-1001', vDate: '2026-11-10T00:00:00.000Z', vTime: '1900-01-01T09:15:00.000Z',
+      vehicleNo: 'MH-14-AB-1001', gateOutDate: '2026-11-10T11:20:00.000Z',
+      grossWeight: kg('18420.500'), tareWeight: kg('6120.250'), netWeight: kg('12300.250'),
+      hasWeighment: true, hasGrn: true, grnDate: '2026-11-10T00:00:00.000Z', grnApprovalStatus: 'APPROVED',
+      fieldsAvailable: [...baseFields, 'grossWeight', 'tareWeight', 'netWeight', 'grnDate'],
+      weighments: [{ weighmentDocId: 'DEMO-W-1001', weighSlipNo: 'WS-1001', grossWeight: kg('18420.500'), tareWeight: kg('6120.250'), netWeight: kg('12300.250'), weighDate: '2026-11-10T09:05:00.000Z', weighDateOut: null }],
+      grns: [{ challanDocId: 'DEMO-PC-1001', vType: 'PCHLG', vNo: 'PC-1001', grnDate: '2026-11-10T00:00:00.000Z', approvalStatus: 'APPROVED' }],
+    },
+    {
+      ...base, docId: 'DEMO-GATE-1002', vNo: 'V-1002', vDate: '2026-11-11T00:00:00.000Z', vTime: '1900-01-01T10:40:00.000Z',
+      vehicleNo: 'MH-14-CD-1002', gateOutDate: null,
+      grossWeight: kg('22110.000'), tareWeight: kg('7005.000'), netWeight: kg('15105.000'),
+      hasWeighment: true, hasGrn: false, grnDate: null, grnApprovalStatus: null,
+      fieldsAvailable: [...baseFields, 'grossWeight', 'tareWeight', 'netWeight'],
+      weighments: [{ weighmentDocId: 'DEMO-W-1002', weighSlipNo: 'WS-1002', grossWeight: kg('22110.000'), tareWeight: kg('7005.000'), netWeight: kg('15105.000'), weighDate: '2026-11-11T10:30:00.000Z', weighDateOut: null }],
+      grns: [],
+    },
+    {
+      ...base, docId: 'DEMO-GATE-1003', vNo: 'V-1003', vDate: '2026-11-12T00:00:00.000Z', vTime: '1900-01-01T08:05:00.000Z',
+      vehicleNo: 'MH-14-EF-1003', gateOutDate: null,
+      grossWeight: null, tareWeight: null, netWeight: null,
+      hasWeighment: false, hasGrn: false, grnDate: null, grnApprovalStatus: null,
+      fieldsAvailable: [...baseFields],
+      weighments: [],
+      grns: [],
+    },
+    {
+      ...base, docId: 'DEMO-GATE-1004', vNo: 'V-1004', vDate: '2026-11-13T00:00:00.000Z', vTime: '1900-01-01T07:20:00.000Z',
+      vehicleNo: 'MH-14-GH-1004', gateOutDate: '2026-11-13T15:00:00.000Z',
+      grossWeight: kg('30500.000'), tareWeight: kg('9000.000'), netWeight: kg('21500.000'),
+      hasWeighment: true, hasGrn: true, grnDate: '2026-11-14T00:00:00.000Z', grnApprovalStatus: 'PENDING',
+      fieldsAvailable: [...baseFields, 'grossWeight', 'tareWeight', 'netWeight', 'grnDate'],
+      weighments: [
+        { weighmentDocId: 'DEMO-W-1004A', weighSlipNo: 'WS-1004A', grossWeight: kg('30500.000'), tareWeight: kg('9000.000'), netWeight: kg('21500.000'), weighDate: '2026-11-13T07:10:00.000Z', weighDateOut: null },
+        { weighmentDocId: 'DEMO-W-1004B', weighSlipNo: 'WS-1004B', grossWeight: kg('30480.000'), tareWeight: kg('9000.000'), netWeight: kg('21480.000'), weighDate: '2026-11-13T14:50:00.000Z', weighDateOut: null },
+      ],
+      grns: [
+        { challanDocId: 'DEMO-PC-1004A', vType: 'PCHLG', vNo: 'PC-1004A', grnDate: '2026-11-14T00:00:00.000Z', approvalStatus: 'PENDING' },
+        { challanDocId: 'DEMO-PC-1004B', vType: 'PCHLG', vNo: 'PC-1004B', grnDate: '2026-11-15T00:00:00.000Z', approvalStatus: 'APPROVED' },
+      ],
+    },
+  ];
+}
+
+/** The list endpoint returns a summary per gate entry, without the related-row arrays. */
+function toErpListItem(e: ErpGateEntryDetail): ErpGateEntry {
+  const { weighments: _w, grns: _g, ...summary } = e;
+  return summary;
+}
 
 function queueItem(db: MockDb, v: ReceivingVisit): QcQueueItem {
   const insp = db.inspections.find((i) => i.visitId === v.id);

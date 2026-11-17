@@ -1,7 +1,7 @@
 import type { ComponentType } from 'react';
 import { Link } from 'react-router-dom';
 import {
-  BarChart3, Calculator, ClipboardCheck, DoorOpen, FileText, FlaskConical, Inbox, ListChecks, Receipt, Scale, Send, Stamp, Truck, Users, type LucideProps,
+  BarChart3, Calculator, ClipboardCheck, Database, DoorOpen, FileText, FlaskConical, Inbox, ListChecks, Receipt, Scale, Send, Stamp, Truck, Users, type LucideProps,
 } from 'lucide-react';
 import { api } from '../../api';
 import { useAsync } from '../../hooks/useAsync';
@@ -73,6 +73,9 @@ const cardsByRole: Record<RoleCode, { main: HomeCard[]; more: HomeCard[] }> = {
     main: [
       { id: 'hoc', title: 'Cases to check', desc: 'Document packages sent by the gate.', to: '/head-office', icon: Inbox, count: 'hoCases', countText: waiting, cap: 'ho.inbox' },
       { id: 'erp', title: 'DataMan steps', desc: 'Plant Head approval, voucher and posting.', to: '/erp-milestones', icon: ClipboardCheck, count: 'erpPending', countText: (n) => `${n} pending`, cap: 'ho.inbox' },
+      // Read-only DataMan gate entries (Phase 06). The card is only discoverability:
+      // the route guard (RequireCap) and the backend @Requires('erp.read') enforce access.
+      { id: 'erpg', title: 'DataMan gate entries', desc: 'Look up a gate entry, its weighments and GRN in DataMan.', to: '/erp/gate-entries', icon: Database, cap: 'erp.read' },
       { id: 'rep', title: 'Reports', desc: 'Today at the mill, in numbers.', to: '/overview', icon: BarChart3 },
     ],
     more: [{ id: 'reg', title: 'All trucks', desc: '', to: '/receiving', icon: ListChecks }],

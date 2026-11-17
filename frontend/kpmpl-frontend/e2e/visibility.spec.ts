@@ -43,7 +43,10 @@ test('QC operator sees the submitted readings but no admin pages', async () => {
 
   const forbidden = await context.newPage();
   await forbidden.goto('/#/admin/users');
-  await expect(forbidden.getByRole('alert')).toContainText('You do not have access to this page');
+  // RequireCap redirects unauthorised roles to the landing page (no ERP/admin content);
+  // real access control is the backend capability matrix.
+  await expect(forbidden).toHaveURL(/#\/home/);
+  await expect(forbidden.getByRole('heading', { name: 'Users' })).toHaveCount(0);
 });
 
 test('HO sees the seeded package with its documents; QC cannot', async () => {
@@ -59,7 +62,8 @@ test('HO sees the seeded package with its documents; QC cannot', async () => {
 
   const qcPage = await roles.page('qc');
   await qcPage.goto('/#/documents');
-  await expect(qcPage.getByRole('alert')).toContainText('You do not have access to this page');
+  await expect(qcPage).toHaveURL(/#\/home/);
+  await expect(qcPage.getByRole('heading', { name: 'Document Packages' })).toHaveCount(0);
 });
 
 test('admin sees the operations overview with live counters', async () => {

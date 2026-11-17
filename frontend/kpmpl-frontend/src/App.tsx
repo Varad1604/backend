@@ -17,6 +17,7 @@ import { UsersPage } from './features/admin/UsersPage';
 import { ChangePasswordPage } from './features/account/ChangePasswordPage';
 import { NewPackagePage, PackagePage, PackagesPage } from './features/documents/DocumentPages';
 import { ErpMilestonesPage, HoInboxPage, HoReviewPage } from './features/ho/HoPages';
+import { ErpGateEntriesPage, ErpGateEntryDetailPage } from './features/erp/ErpGateEntriesPage';
 import { AccountingPackagePage, AccountingQueuePage } from './features/accounting/AccountingPages';
 import { HomePage } from './features/home/HomePage';
 import { NotFound } from './features/placeholders/NotFound';
@@ -51,6 +52,8 @@ const router = createHashRouter([
         { path: 'documents/:id', element: <RequireCap cap="docs.prepare"><PackagePage /></RequireCap> },
         { path: 'head-office', element: <RequireCap cap="ho.inbox"><HoInboxPage /></RequireCap> },
         { path: 'head-office/:id', element: <RequireCap cap="ho.inbox"><HoReviewPage /></RequireCap> },
+        { path: 'erp/gate-entries', element: <RequireCap cap="erp.read"><ErpGateEntriesPage /></RequireCap> },
+        { path: 'erp/gate-entries/:docId', element: <RequireCap cap="erp.read"><ErpGateEntryDetailPage /></RequireCap> },
         { path: 'erp-milestones', element: <RequireCap cap="ho.inbox"><ErpMilestonesPage /></RequireCap> },
         { path: 'accounting', element: <RequireCap cap="accounting.inbox"><AccountingQueuePage /></RequireCap> },
         { path: 'accounting/:id', element: <RequireCap cap="accounting.inbox"><AccountingPackagePage /></RequireCap> },

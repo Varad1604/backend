@@ -184,7 +184,10 @@ test('journey 5 — document package: build checklist, attach PDFs, mark ready',
   // The heading holds a generic placeholder until the package data lands.
   await expect(page.getByRole('heading', { level: 1 })).toHaveText(/^DEMO-PKG-/, { timeout: 20_000 });
   packageRef = (await page.getByRole('heading', { level: 1 }).textContent()) ?? '';
-  await expect(page.getByText(`Invoice ${invoiceRef}`)).toBeVisible();
+  // The package header shows the supplier and the invoice ref (current UI format);
+  // the ref may also appear in the packages list on the same screen, so scope to the
+  // invoice definition field.
+  await expect(page.getByRole('definition').filter({ hasText: invoiceRef })).toBeVisible();
 
   // Attach the fixture PDF to every checklist category so nothing is "open".
   const inputs = page.locator('input[type="file"][accept="application/pdf,.pdf"]');

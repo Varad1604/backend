@@ -11,7 +11,7 @@ export type RoleCode = typeof briefRoleCodes[number];
 export const briefCapabilities = [
   'receiving.view', 'receiving.create', 'receiving.edit', 'gate.followup',
   'qc.queue.view', 'qc.measure', 'qc.decide', 'overview.view',
-  'docs.prepare', 'docs.submit', 'ho.inbox', 'ho.review', 'erp.confirm', 'erp.plant_head_approval', 'erp.purchase_voucher', 'erp.final_posting', 'admin.users',
+  'docs.prepare', 'docs.submit', 'ho.inbox', 'ho.review', 'erp.confirm', 'erp.plant_head_approval', 'erp.purchase_voucher', 'erp.final_posting', 'erp.read', 'admin.users',
   'accounting.inbox', 'accounting.review', 'accounting.approve', 'accounting.post',
 ] as const;
 // Internal markers + transitional rows kept in the DB from earlier builds. `auth.self`
@@ -30,7 +30,9 @@ export type Capability = typeof briefCapabilities[number] | typeof retainedCapab
 const gate = ['receiving.view', 'receiving.create', 'receiving.edit', 'gate.followup', 'qc.queue.view', 'overview.view'] as const;
 const qcOperator = ['receiving.view', 'qc.queue.view', 'qc.measure', 'qc.decide', 'overview.view'] as const;
 const docs = ['receiving.view', 'overview.view', 'docs.prepare', 'docs.submit'] as const;
-const headOffice = ['receiving.view', 'overview.view', 'ho.inbox', 'ho.review', 'erp.confirm', 'erp.purchase_voucher', 'erp.plant_head_approval'] as const;
+// Phase 05A: `erp.read` is the read-only DataMan capability the ERP screens require.
+// `erp.final_posting` stays with the Head Accountant only (see policy.spec.ts).
+const headOffice = ['receiving.view', 'overview.view', 'ho.inbox', 'ho.review', 'erp.confirm', 'erp.purchase_voucher', 'erp.plant_head_approval', 'erp.read'] as const;
 // Accountant: sees the accounting queue, works verified packages, hands over to the
 // Head Accountant. Head Accountant: approves, posts the bill. Least privilege: neither
 // holds ho.review or erp.confirm (HO keeps those), and corrections need a reason.
@@ -57,4 +59,3 @@ export const roleCapabilities: Record<RoleCode, readonly Capability[]> = {
 export function permits(capabilities: readonly string[], capability: Capability): boolean {
   return capability === 'auth.self' || capability === 'platform.read' || capabilities.includes(capability);
 }
-

@@ -38,6 +38,7 @@ tags:
   - name: documents
   - name: head-office
   - name: accounting
+  - name: erp
 paths:
   /healthz:
     get:
@@ -537,6 +538,48 @@ paths:
       responses:
         '200': { $ref: '#/components/responses/PackageView' }
         '422': { $ref: '#/components/responses/Error' }
+  /erp/gate-entries:
+    get:
+      tags: [erp]
+      summary: List DataMan ERP gate entries, one page at a time (erp.read; read-only)
+      description: |
+        Read-only projection of the DataMan SQL Server GateInOut table with its optional
+        Weightment and PChallan (GRN) rows. Pagination is per gate entry, so a gate entry
+        with several weighments or GRNs cannot duplicate or shift a page.
+        Weights are ERP-recorded Decimal(12,3) values in kg, returned as fixed strings and
+        never recomputed; null means "not recorded in DataMan", never zero.
+        An ERP outage returns 503 ERP_UNAVAILABLE - never an empty 200 list.
+      parameters:
+        - { name: page, in: query, required: false, schema: { type: integer, minimum: 1, default: 1 } }
+        - { name: limit, in: query, required: false, schema: { type: integer, minimum: 1, maximum: 100, default: 20 } }
+        - { name: docId, in: query, required: false, schema: { type: string }, description: Exact GateInOut.DocId }
+        - { name: vType, in: query, required: false, schema: { type: string }, description: "Exact PChallan.V_Type match. 'PCHLG' is the sampled value; the full set is unverified, so this is not an enum." }
+      responses:
+        '200':
+          description: One page of gate entries (a legitimately empty page is a valid 200)
+          content: { application/json: { schema: { type: object, required: [data, meta], properties: { data: { type: array, items: { $ref: '#/components/schemas/ErpGateEntry' } }, meta: { $ref: '#/components/schemas/ErpGateEntryListMeta' } } } } }
+        '401': { $ref: '#/components/responses/Error' }
+        '403': { $ref: '#/components/responses/Error' }
+        '503': { description: ERP data source unavailable (retryable; never an empty dataset), content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+  /erp/gate-entries/{docId}:
+    parameters: [{ name: docId, in: path, required: true, schema: { type: string } }]
+    get:
+      tags: [erp]
+      summary: One DataMan ERP gate entry with every related weighment and GRN (erp.read; read-only)
+      description: |
+        Read-only projection of GateInOut joined to every Weightment and PChallan (GRN) row
+        for that DocId. A gate entry with no weighment and/or no GRN is a valid record with
+        empty arrays and false hasWeighment/hasGrn - not an error.
+        Missing DocId in the ERP -> 404 NOT_FOUND; ERP unreachable -> 503 ERP_UNAVAILABLE.
+      responses:
+        '200':
+          description: The gate entry with all related rows
+          content: { application/json: { schema: { type: object, required: [data, meta], properties: { data: { $ref: '#/components/schemas/ErpGateEntryDetail' }, meta: { $ref: '#/components/schemas/ErpGateEntryDetailMeta' } } } } }
+        '400': { $ref: '#/components/responses/Error' }
+        '401': { $ref: '#/components/responses/Error' }
+        '403': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+        '503': { description: ERP data source unavailable (retryable; never an empty dataset), content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
 components:
   securitySchemes:
     cookieAuth: { type: apiKey, in: cookie, name: __Host-kpmpl_sid }
@@ -883,12 +926,90 @@ components:
           type: object
           required: [code, message, requestId]
           properties:
-            code: { type: string, enum: [UNAUTHENTICATED, FORBIDDEN, NOT_FOUND, VALIDATION_FAILED, DUPLICATE_CANDIDATE, VERSION_CONFLICT, DOMAIN_RULE, RATE_LIMITED, IDEMPOTENCY_IN_PROGRESS, SERVER_ERROR] }
+            code: { type: string, enum: [UNAUTHENTICATED, FORBIDDEN, NOT_FOUND, VALIDATION_FAILED, DUPLICATE_CANDIDATE, VERSION_CONFLICT, DOMAIN_RULE, RATE_LIMITED, IDEMPOTENCY_IN_PROGRESS, ERP_UNAVAILABLE, SERVER_ERROR] }
             message: { type: string }
             fields: { type: object, additionalProperties: { type: string } }
             requestId: { type: string }
             meta: { type: object }
 
+    ErpWeight:
+      description: ERP-recorded weight (Decimal(12,3) kg); null means not recorded in DataMan, never zero.
+      oneOf: [{ $ref: '#/components/schemas/Quantity' }, { type: 'null' }]
+    ErpGateEntryCore:
+      description: Fields shared by the ERP list and detail projections (nullable by design).
+      type: object
+      required: [docId]
+      properties:
+        docId: { type: string }
+        vType: { type: [string, 'null'] }
+        vNo: { type: [string, 'null'] }
+        vDate: { type: [string, 'null'], description: ERP date as returned by SQL Server }
+        vTime: { type: [string, 'null'], description: "ERP time-of-day; SQL Server anchors it to 1900-01-01, so only the time part is meaningful." }
+        partyCode: { type: [string, 'null'] }
+        vehicleNo: { type: [string, 'null'] }
+        gateOutDate: { type: [string, 'null'] }
+        grossWeight: { $ref: '#/components/schemas/ErpWeight' }
+        tareWeight: { $ref: '#/components/schemas/ErpWeight' }
+        netWeight: { $ref: '#/components/schemas/ErpWeight' }
+        grnDate: { type: [string, 'null'] }
+        grnApprovalStatus: { type: [string, 'null'] }
+    ErpGateEntry:
+      allOf:
+        - { $ref: '#/components/schemas/ErpGateEntryCore' }
+        - type: object
+          required: [hasWeighment, hasGrn, fieldsAvailable]
+          properties:
+            hasWeighment: { type: boolean }
+            hasGrn: { type: boolean }
+            fieldsAvailable: { type: array, items: { type: string } }
+    ErpWeighment:
+      type: object
+      required: [weighmentDocId]
+      properties:
+        weighmentDocId: { type: string }
+        weighSlipNo: { type: [string, 'null'] }
+        grossWeight: { $ref: '#/components/schemas/ErpWeight' }
+        tareWeight: { $ref: '#/components/schemas/ErpWeight' }
+        netWeight: { $ref: '#/components/schemas/ErpWeight' }
+        weighDate: { type: [string, 'null'] }
+        weighDateOut: { type: [string, 'null'] }
+    ErpGrn:
+      type: object
+      required: [challanDocId]
+      properties:
+        challanDocId: { type: string }
+        vType: { type: [string, 'null'] }
+        vNo: { type: [string, 'null'] }
+        grnDate: { type: [string, 'null'] }
+        approvalStatus: { type: [string, 'null'] }
+    ErpGateEntryDetail:
+      allOf:
+        - { $ref: '#/components/schemas/ErpGateEntryCore' }
+        - type: object
+          required: [hasWeighment, hasGrn, weighments, grns]
+          properties:
+            hasWeighment: { type: boolean }
+            hasGrn: { type: boolean }
+            weighments: { type: array, items: { $ref: '#/components/schemas/ErpWeighment' } }
+            grns: { type: array, items: { $ref: '#/components/schemas/ErpGrn' } }
+    ErpGateEntryListMeta:
+      type: object
+      required: [source, total, page, limit, totalPages, retrievedAt]
+      properties:
+        source: { type: string }
+        total: { type: integer }
+        page: { type: integer }
+        limit: { type: integer }
+        totalPages: { type: integer }
+        retrievedAt: { type: string }
+    ErpGateEntryDetailMeta:
+      type: object
+      required: [source, retrievedAt, fieldsAvailable, fieldsMissing]
+      properties:
+        source: { type: string }
+        retrievedAt: { type: string }
+        fieldsAvailable: { type: array, items: { type: string } }
+        fieldsMissing: { type: array, items: { type: string } }
   /admin/dashboard:
     get:
       tags: [admin]

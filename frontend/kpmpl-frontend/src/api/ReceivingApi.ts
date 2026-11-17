@@ -6,7 +6,7 @@
  */
 import type {
   AccountingAction, AccountingChecks, AttachFileInput, ChangePasswordInput, CorrectVisitInput, CreatedUser, CreatePackageInput, CreateReceivingVisitInput, CreateUserInput,
-  DocCategory, DocumentPackageView, ErpMilestoneInput, OverviewData, Page, QcInspection, QcQueueItem,
+  DocCategory, DocumentPackageView, ErpGateEntriesQuery, ErpGateEntryDetail, ErpGateEntryPage, ErpMilestoneInput, OverviewData, Page, QcInspection, QcQueueItem,
   QcDecisionInput, QcSubmitInput, ReceivingVisit, RecordExitInput, RecordGrnInput, RecordTareInput,
   ReferenceData, TemporaryPasswordResult, TimelineEvent, UpdatePackageInput, UpdateUserInput, User, VisitListQuery,
 } from '../domain/types';
@@ -71,6 +71,12 @@ export interface ReceivingApi {
   hoCheckItem(id: string, category: DocCategory, check: 'ok' | 'issue' | 'unchecked', note: string | null, opts: VersionedWrite): Promise<DocumentPackageView>;
   recordErpMilestone(id: string, input: ErpMilestoneInput, opts: VersionedWrite): Promise<DocumentPackageView>;
   sendReminder(id: string, note: string, opts: VersionedWrite): Promise<DocumentPackageView>;
+
+  // module 2 — DataMan ERP read-only (Phase 05A). Requires the `erp.read` capability.
+  /** GET /erp/gate-entries. 503 ⇒ ERP unavailable (never an empty list). */
+  listErpGateEntries(q: ErpGateEntriesQuery): Promise<ErpGateEntryPage>;
+  /** GET /erp/gate-entries/:docId. 404 ⇒ gate entry not in ERP; 503 ⇒ ERP unavailable. */
+  getErpGateEntry(docId: string): Promise<ErpGateEntryDetail>;
   /** Accounting workflow actions: start, hand over, approve, post, return, correct (upgrade 2026-11-03). */
   accountingAction(id: string, action: AccountingAction, opts: VersionedWrite): Promise<DocumentPackageView>;
   /**

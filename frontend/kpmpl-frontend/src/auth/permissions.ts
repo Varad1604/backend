@@ -19,6 +19,7 @@ export type Capability =
   | 'docs.submit'        // authorise and send package to HO (Pathak/Kishore role)
   | 'ho.inbox'           // view HO inbox and PDFs
   | 'ho.review'          // verify documents / request corrections
+  | 'erp.read'                // read-only ERP (DataMan) gate entries — mirrors backend policy `headOffice`
   | 'erp.confirm'             // record staff-confirmed DataMan milestones and reminders (HO)
   | 'erp.plant_head_approval' // Document Authority: confirm Plant Head GRN approval
   | 'erp.purchase_voucher'    // Head Office: confirm purchase voucher
@@ -37,7 +38,9 @@ const grants: Record<RoleCode, Capability[]> = {
   gate_doc_authority: ['receiving.view', 'receiving.create', 'receiving.edit', 'gate.followup', 'qc.queue.view', 'overview.view', 'docs.prepare', 'docs.submit', 'erp.plant_head_approval'],
   gate_doc: ['receiving.view', 'overview.view', 'docs.prepare', 'docs.submit', 'erp.plant_head_approval'],
   qc: ['receiving.view', 'qc.queue.view', 'qc.measure', 'qc.decide', 'overview.view'],
-  ho: ['receiving.view', 'overview.view', 'ho.inbox', 'ho.review', 'erp.confirm', 'erp.purchase_voucher', 'erp.plant_head_approval'],
+  // Mirrors backend `policy.ts` → `headOffice` exactly (it includes 'erp.read').
+  // `erp.final_posting` stays with the Head Accountant only — same as the backend matrix.
+  ho: ['receiving.view', 'overview.view', 'ho.inbox', 'ho.review', 'erp.read', 'erp.confirm', 'erp.purchase_voucher', 'erp.plant_head_approval'],
   accountant: ['receiving.view', 'overview.view', 'accounting.inbox', 'accounting.review'],
   head_accountant: ['receiving.view', 'overview.view', 'accounting.inbox', 'accounting.review', 'accounting.approve', 'accounting.post', 'erp.final_posting'],
   admin: ['receiving.view', 'overview.view', 'ho.inbox', 'admin.users'],
@@ -77,6 +80,7 @@ export const capabilityLabel: Record<Capability, string> = {
   'docs.submit': 'Authorise and send package to HO',
   'ho.inbox': 'View Head Office inbox and PDFs',
   'ho.review': 'Verify documents / request corrections',
+  'erp.read': 'Read DataMan ERP gate entries (read-only)',
   'erp.confirm': 'रecord staff-confirmed DataMan milestones and reminders (HO)',
   'erp.plant_head_approval': 'Plant Head GRN अनुमोदन पुष्टी करा (DataMan)',
   'erp.purchase_voucher': 'खरेदी वाउचर पुष्टी करा (DataMan)',

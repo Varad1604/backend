@@ -11,7 +11,7 @@ import Ajv2020 from 'ajv/dist/2020';
 import { parse } from 'yaml';
 import { describe, expect, it } from 'vitest';
 import { buildFixtures } from '../mock/fixtures';
-import { RECEIVING_CSV_COLUMNS } from '../mock/mockAdapter';
+import { erpFixtures, RECEIVING_CSV_COLUMNS } from '../mock/mockAdapter';
 import type { DocumentPackageView, Page, QcInspection, QcQueueItem, ReceivingVisit } from '../../domain/types';
 // Vite injects the file contents at build time (no node:fs in the browser tsconfig).
 import contractYaml from './openapi.yaml?raw';
@@ -63,8 +63,11 @@ describe('frontend fixtures against the generated backend contract', () => {
     // Plant Head approval milestone route.
     expect(paths).toContain('/accounting/queue');
     expect(paths).toContain('/document-packages/{id}/erp-milestones/plant-head-approval');
-    // 40 adapter calls land on 40 paths (two paths carry both a GET and a write).
-    expect(paths.length).toBe(40);
+    // Phase 06: the two read-only DataMan ERP endpoints.
+    expect(paths).toContain('/erp/gate-entries');
+    expect(paths).toContain('/erp/gate-entries/{docId}');
+    // 42 adapter calls land on 42 paths (two paths carry both a GET and a write).
+    expect(paths.length).toBe(42);
   });
 
   it('validates every fixture visit as a ReceivingVisit', () => {
@@ -89,6 +92,31 @@ describe('frontend fixtures against the generated backend contract', () => {
     expectValid('VisitPage', page);
     const queueItem: QcQueueItem = { visit: visits[0]!, latestRevision: 1, lastReturnReason: null };
     expectValid('QcQueueItem', queueItem);
+  });
+
+  it('validates the ERP gate-entry fixtures as the documented ERP schemas', () => {
+    const erp = erpFixtures();
+    expect(erp.length).toBeGreaterThan(0);
+    for (const entry of erp) {
+      // Detail: gate entry plus every related weighment/GRN row.
+      const { weighments: _w, grns: _g, ...listItem } = entry;
+      expectValid('ErpGateEntryDetail', entry);
+      expectValid('ErpGateEntry', listItem);
+      for (const w of entry.weighments) expectValid('ErpWeighment', w);
+      for (const g of entry.grns) expectValid('ErpGrn', g);
+    }
+    // Weights are kg strings, never numbers or an invented unit.
+    for (const entry of erp) for (const weight of [entry.grossWeight, entry.tareWeight, entry.netWeight]) {
+      if (weight) expect(weight.unit).toBe('kg');
+    }
+  });
+
+  it('pins the ERP list query parameter names the adapter sends', () => {
+    const list = doc.paths['/erp/gate-entries'] as {
+      get?: { parameters?: Array<{ name?: string; in?: string }> };
+    };
+    expect((list.get?.parameters ?? []).map((p) => p.name)).toEqual(['page', 'limit', 'docId', 'vType']);
+    expect((list.get?.parameters ?? []).every((p) => p.in === 'query')).toBe(true);
   });
 
   it('keeps the CSV column contract in sync with the document', () => {

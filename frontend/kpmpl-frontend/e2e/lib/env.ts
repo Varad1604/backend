@@ -33,11 +33,14 @@ function resolveDemoPassword(): string {
 
 export const DEMO_PASSWORD = resolveDemoPassword();
 
-/** The five seeded demo users (apps/api/src/seed.ts). */
+/** The seven seeded demo users (apps/api/src/seed.ts) — includes the accounting roles
+ * added by the 2026-11-03 upgrade; journey 8 walks the accounting handoff. */
 export const USERS: Record<RoleCode, DemoUser> = {
   gate: { username: 'demo-gate', password: DEMO_PASSWORD, displayName: 'Demo Gate User', role: 'gate' },
   qc: { username: 'demo-qc', password: DEMO_PASSWORD, displayName: 'Demo QC User', role: 'qc' },
   gate_doc: { username: 'demo-docs', password: DEMO_PASSWORD, displayName: 'Demo Document Authority', role: 'gate_doc' },
   ho: { username: 'demo-ho', password: DEMO_PASSWORD, displayName: 'Demo HO User', role: 'ho' },
+  accountant: { username: 'demo-accountant', password: DEMO_PASSWORD, displayName: 'Demo Accountant', role: 'accountant' },
+  head_accountant: { username: 'demo-headacc', password: DEMO_PASSWORD, displayName: 'Demo Head Accountant', role: 'head_accountant' },
   admin: { username: 'demo-admin', password: DEMO_PASSWORD, displayName: 'Demo Admin', role: 'admin' },
 };

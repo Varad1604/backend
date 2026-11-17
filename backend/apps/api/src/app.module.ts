@@ -8,6 +8,7 @@ import { RedisModule } from './infra/redis/redis.module';
 import { HealthModule } from './modules/platform/health/health.module';
 import { DocumentsModule } from './modules/documents/documents.module';
 import { ReportsModule } from './modules/reports/reports.module';
+import { ErpSqlServerModule } from './modules/erp-sql-server/erp-sql-server.module';
 
 /**
  * Root module. Domain modules (receiving, weighment, qc, movement-grn, documents,
@@ -15,6 +16,6 @@ import { ReportsModule } from './modules/reports/reports.module';
  * must respect the module boundaries in build prompt section 4.3.
  */
 @Module({
-  imports: [PrismaModule, RedisModule, HealthModule, IdentityModule, ReceivingModule, QcModule, MovementModule, DocumentsModule, ReportsModule],
+  imports: [PrismaModule, RedisModule, HealthModule, IdentityModule, ReceivingModule, QcModule, MovementModule, DocumentsModule, ReportsModule, ErpSqlServerModule],
 })
 export class AppModule {}

@@ -23,7 +23,7 @@ import { config } from '../../config';
 import { emitSessionExpired } from '../../auth/sessionEvents';
 import { uuidV4 } from '../../lib/ids';
 import type {
-  CreatedUser, DocumentPackageView, OverviewData, Page, QcInspection, QcQueueItem, ReceivingVisit, ReferenceData,
+  CreatedUser, DocumentPackageView, ErpGateEntry, ErpGateEntryDetail, OverviewData, Page, QcInspection, QcQueueItem, ReceivingVisit, ReferenceData,
   TemporaryPasswordResult, TimelineEvent, User,
 } from '../../domain/types';
 
@@ -210,6 +210,25 @@ export function createHttpAdapter(deps: HttpAdapterDeps): ReceivingApi {
     return env.data as T;
   }
 
+  /**
+   * Like call(), but keeps the `meta` block. ERP list endpoints carry pagination in
+   * `meta` (total/page/limit/totalPages), which call() intentionally discards.
+   */
+  async function callEnvelope<D, M>(path: string): Promise<{ data: D; meta: Partial<M> }> {
+    const startedEpoch = sessionEpoch;
+    const res = await send('GET', path, {});
+    if (!res.ok) return fail(path, res, startedEpoch);
+    let body: unknown;
+    try {
+      body = await res.json();
+    } catch {
+      throw new ApiError('SERVER_ERROR', 'The server returned an unexpected response.', res.status);
+    }
+    const env = asRecord(body);
+    if (!env || !('data' in env)) throw new ApiError('SERVER_ERROR', 'The server returned an unexpected response.', res.status);
+    return { data: env.data as D, meta: (asRecord(env.meta) ?? {}) as Partial<M> };
+  }
+
   const v = (o: { idempotencyKey: string; expectedVersion: number }): RequestOptions => ({ idempotencyKey: o.idempotencyKey, ifMatch: o.expectedVersion });
   const inspections = (visitId: string) => call<QcInspection[]>('GET', `/receiving-visits/${enc(visitId)}/qc-inspections`);
 
@@ -291,6 +310,32 @@ export function createHttpAdapter(deps: HttpAdapterDeps): ReceivingApi {
       const blob = await res.blob();
       const today = new Date().toISOString().slice(0, 10);
       return { filename: filenameFrom(res, `kpmpl-receiving-${today}.csv`), blob };
+    },
+
+    /* ---- DataMan ERP read-only (Phase 05A) ---- */
+    listErpGateEntries: async (q) => {
+      const env = await callEnvelope<ErpGateEntry[], { total: number; page: number; limit: number; totalPages: number }>(
+        `/erp/gate-entries${qs(q)}`,
+      );
+      const m = env.meta;
+      return {
+        data: env.data,
+        total: Number(m.total ?? env.data.length),
+        page: Number(m.page ?? q.page ?? 1),
+        limit: Number(m.limit ?? q.limit ?? 20),
+        totalPages: Number(m.totalPages ?? 1),
+      };
+    },
+    getErpGateEntry: async (docId) => {
+      // The detail endpoint carries fieldsAvailable/fieldsMissing in `meta`, not in `data`.
+      const env = await callEnvelope<Omit<ErpGateEntryDetail, 'fieldsAvailable' | 'fieldsMissing'> & { fieldsAvailable?: string[] }, { fieldsAvailable?: string[]; fieldsMissing?: string[] }>(
+        `/erp/gate-entries/${enc(docId)}`,
+      );
+      return {
+        ...env.data,
+        fieldsAvailable: env.data.fieldsAvailable ?? env.meta.fieldsAvailable ?? [],
+        fieldsMissing: env.meta.fieldsMissing ?? [],
+      };
     },
 
     /* ---- 5.6 administration ---- */
