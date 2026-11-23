@@ -1,0 +1,14 @@
+flowchart LR
+    API["kpmpl-api"] -->|"allowed"| APP["kpmpl-app"]
+    API -->|"allowed"| INFRA["kpmpl-infra"]
+    INFRA -->|"allowed (implements ports)"| APP
+    INFRA -->|"allowed"| DOM["kpmpl-domain"]
+    APP -->|"allowed"| DOM
+    APP -.->|"FORBIDDEN"| INFRA
+    DOM -.->|"FORBIDDEN: any internal dep, async, I/O"| APP
+    DOM -.->|"FORBIDDEN"| INFRA
+    DOM -.->|"FORBIDDEN"| API
+    INFRA -.->|"FORBIDDEN"| API
+
+    CI["CI dep-edges check: cargo metadata edge list + domain external-dep allowlist (serde, rust_decimal, chrono, uuid, thiserror) + clippy -D warnings"]
+    DOM -.-> CI

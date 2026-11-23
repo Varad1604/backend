@@ -1,0 +1,35 @@
+flowchart TB
+    USERS["Browser users (LAN)"]
+    subgraph HOST["One host: Windows Server 2025, native services only (ADR-037; location = OD-01)"]
+        EDGE["Caddy 2 - the one TLS edge (Windows service) - HSTS, CSP, XFF single hop"]
+        subgraph APPZONE["APP zone"]
+            API1["kpmpl-api replica 1 (Rust binary)"]
+            API2["kpmpl-api replica 2 (optional; advisory-lock discipline makes it safe)"]
+            JOBS["In-process Tokio jobs (orphan sweep, purges, audit self-check, anchor export)"]
+        end
+        PG[("PostgreSQL 18 (SoT, WAL archiving)")]
+        LIMIT["In-process rate limiter (per replica) - ADR-036; no Redis/Memurai"]
+        STORE[("Local NTFS document volume - LocalFileStore, the only adapter (ADR-035)")]
+        CLAMD["ClamAV 1.4 LTS: clamd + freshclam (Windows services)"]
+    end
+    ERP[("DataMan SQL Server - READ-ONLY (TLS)")]
+    BACKUP[("Off-host backup target: PG dump FIRST (cutoff T0) then robocopy file copy + SHA-256 manifest (ADR-033 watermark; separate credentials; owner-pending OD-01/02/09/10)")]
+
+    USERS -->|"HTTPS"| EDGE
+    EDGE -->|"/api/v1/*"| API1
+    EDGE -.-> API2
+    API1 --> PG
+    API1 --> LIMIT
+    API1 --> STORE
+    API1 --> CLAMD
+    API1 --> ERP
+    API2 --> PG
+    API2 --> LIMIT
+    API2 --> STORE
+    API2 --> CLAMD
+    API2 --> ERP
+    JOBS --> PG
+    JOBS --> STORE
+    PG -->|"pg_dump + WAL / PITR"| BACKUP
+    STORE -->|"nightly backup pair: PG dump @T0 then file copy @T2 + manifest (ADR-033)"| BACKUP
+    ANCHORS[("Anchor storage: separate off-domain account, write-once, signed (ADR-012/OD-13)")]

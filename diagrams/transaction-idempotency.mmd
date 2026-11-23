@@ -1,0 +1,38 @@
+sequenceDiagram
+    autonumber
+    participant C as Client
+    participant API as kpmpl-api
+    participant DB as PostgreSQL (one transaction)
+
+    C->>API: write request (Idempotency-Key, If-Match)
+    API->>API: capability check (+ in-tx re-check later for identity/admin ops)
+    API->>DB: BEGIN
+    API->>DB: scope advisory lock 6200010, hashtext(userId:method:path:key) - TRANSACTION-scoped, held to COMMIT/rollback
+    API->>DB: idempotency lookup (same tx)
+    alt completed + same requestHash
+        API->>DB: rollback (nothing written, lock released)
+        API-->>C: stored status + Idempotent-Replay: true
+    else completed + different hash
+        API->>DB: rollback
+        API-->>C: 422 "Idempotency key reused with different data"
+    else committed row that is NOT completed (stale/legacy only)
+        API->>DB: rollback
+        API-->>C: 409 "The original request is not complete."
+    else none / expired
+        API->>DB: domain advisory locks (6200011 dup-gate / 6200001 identity)
+        API->>DB: aggregate SELECT FOR UPDATE + If-Match compare (stale = 409 VERSION_CONFLICT)
+        API->>DB: rule checks (state machines R-01..R-22)
+        API->>DB: business writes (children included)
+        API->>DB: audit append (chain lock 6200002, prevHash = last rowHash)
+        API->>DB: IdempotencyRecord insert (status=completed + stored response) - always 'completed', never 'in_progress'
+        API->>DB: COMMIT (advisory + row locks released atomically)
+        alt COMMIT fails
+            DB-->>API: rollback (no row, no audit, no idem record)
+            API-->>C: mapped error (client retries same key - clean re-execution)
+        else COMMIT ok
+            API-->>C: success envelope
+        end
+    end
+
+    Note over API,DB: Lock order: idempotency scope -> domain advisory -> aggregate row -> audit chain. Never inverted. No auto-retry.
+    Note over C,DB: LIVE concurrency: a second same-key request BLOCKS on the transaction-scoped advisory lock until the first COMMITS, then replays. The 409 branch is reachable only via a committed non-completed row (nothing inserts status='in_progress' today - verified writes.rs:151-152).

@@ -1,0 +1,54 @@
+sequenceDiagram
+    autonumber
+    actor Gate as Gate Document Authority
+    participant API as kpmpl-api
+    participant AV as clamd (INSTREAM)
+    participant STORE as LocalFileStore (Phase 1: NTFS volume, ADR-035)
+    participant DB as PostgreSQL
+
+    Note over Gate,DB: THE upload protocol - exactly ONE DB transaction, opened AFTER scan and store publish (ADR-022/ADR-035, V1.1)
+    Gate->>API: POST /api/v1/document-packages/{id}/files (multipart, Idempotency-Key, If-Match)
+    API->>API: body limit, multipart parse, buffer, %PDF- magic, filename sanitize
+    API->>AV: INSTREAM on buffered bytes (10s budget) - NO transaction is open, NO lock is held
+    alt infected
+        AV-->>API: FOUND
+        API-->>Gate: 422 "This file failed the security scan." (nothing stored)
+    else scanner error + SCAN_FAIL_CLOSED=true (default)
+        API-->>Gate: 422 DOMAIN_RULE "The security scanner is unavailable. Try again later." (nothing stored)
+    end
+    AV-->>API: OK (clean)
+    API->>STORE: stage CREATE_NEW + sync_all, then atomic no-replace rename to packages/{packageId}/{uuid}.pdf (fresh uuid, still NO transaction)
+    API->>DB: BEGIN (pool connection carries this one transaction to COMMIT/rollback)
+    API->>DB: pg_advisory_xact_lock(6200010, hashtext(userId:method:path:key)) - TRANSACTION-scoped
+    API->>DB: idempotency lookup (same tx)
+    alt committed row, same requestHash
+        API->>DB: rollback (tx dropped, advisory lock released)
+        API->>STORE: compensate OWN just-published file (fresh uuid can never hit a committed file)
+        API-->>Gate: stored 201 + Idempotent-Replay: true (no second object kept)
+    else committed row, different requestHash
+        API->>DB: rollback (lock released)
+        API->>STORE: compensate own published file
+        API-->>Gate: 422 "Idempotency key reused with different data"
+    else committed non-completed row (stale/legacy, live concurrency never produces this)
+        API->>DB: rollback
+        API->>STORE: compensate own published file
+        API-->>Gate: 409 "The original request is not complete."
+    else no row / expired
+        API->>DB: SELECT FOR UPDATE package + If-Match compare (commit-time check, stale = 409 rollback)
+        API->>DB: GATE_EDITABLE check (R-10)
+        API->>DB: INSERT DocumentFile (server sha256, size, name, scanStatus=clean) + item hoCheck reset + demotion + PackageHistory + AuditEvent
+        API->>DB: INSERT IdempotencyRecord(status=completed, stored 201 response)
+        API->>DB: COMMIT (advisory lock + row locks released atomically)
+        API-->>Gate: 201 {data: full PackageView}
+    end
+    Note over API,STORE: on ANY error or replay the request's OWN published bytes are compensated (deleted or _quarantine-hold per ADR-035), committed files are never touched (fresh uuid per attempt)
+    Note over API,DB: concurrent same-key requests SERIALIZE on the advisory lock: the second waits until the first COMMITS, then replays. No lock is ever held across ClamAV or the store publish.
+
+    Note over Gate,DB: Download - re-authorized per request
+    actor HO as HO / Accounting (status-gated)
+    HO->>API: GET /api/v1/document-files/{fileId}/content
+    API->>DB: capability + visibility + scanStatus=clean + not deleted (else 404)
+    API->>STORE: read file (store root ACL = SYSTEM + svcKPMPLApi only)
+    STORE-->>API: bytes
+    API->>API: sha256 verify BEFORE first byte (500 + integrity alert on mismatch - ADR-032)
+    API-->>HO: application/pdf, inline sanitized filename, nosniff, private no-store

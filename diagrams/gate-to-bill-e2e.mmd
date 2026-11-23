@@ -1,0 +1,19 @@
+flowchart LR
+    A["Gate arrival<br/>POST /receiving-visits (R-01, R-02 dup guard)<br/>optional erpEvidence re-verified fail-closed"] --> B["Gross weighment<br/>(weight_recorded audit)"]
+    B --> C["QC readings + decision<br/>R-07 / R-08 (D-03)"]
+    C --> D["Tare weighment<br/>R-04 (gross first, tare less than gross)"]
+    D --> E["Controlled exit<br/>R-05 (QC decided, mill checks, time guard)"]
+    E --> F["GRN reference<br/>R-06 (verifiedInDataManByStaff=true)"]
+    F --> G["Document package<br/>R-09 (one per truck, 6-row checklist)"]
+    G --> H["mark_ready + submit to HO<br/>R-12 / R-14 (docs.submit)"]
+    H --> I["HO review<br/>R-15..R-17 (checks, corrections)"]
+    I -->|"verify R-18<br/>every attached row ok"| J["verified"]
+    I -->|"request_correction"| H2["Gate fixes + resubmit (responseNote)"]
+    H2 --> I
+    J --> K["Manual ERP milestones in order<br/>R-19/R-20 (plant-head approval, voucher, posting)"]
+    J --> L["start_accounting<br/>(AccountingRecord stage machine)"]
+    K --> L2["Reminders while plant-head pending<br/>R-21 (in-app, D-09)"]
+    L --> M["3 checks (bill_passed, gst_checked, tds_checked)<br/>staff-typed amounts (B-11/B-12)"]
+    M --> N["approve_accounting (all 3 ok)"]
+    N --> O["post_bill (terminal, billRef)<br/>INTERNAL bill_posted - NOT an ERP posting"]
+    L -.->|"return_to_ho loop"| I

@@ -1,0 +1,37 @@
+flowchart TB
+    subgraph ACTORS["Plant & HO staff (LAN, 50-60 concurrent - planning assumption)"]
+        GATE["Gate Operator (gate)"]
+        GDOC["Gate Document Authority (gate_doc / gate_doc_authority)"]
+        QC["QC Operator (qc)"]
+        HO["Head Office Accounts (ho)"]
+        ACC["Accountant / Head Accountant (accountant)"]
+        ADM["System Admin (admin)"]
+    end
+
+    BROWSER["React SPA (httpAdapter is the contract arbiter)"]
+
+    subgraph CORE["Trusted core"]
+        API["kpmpl-api (Rust, axum) - 58 canonical operations /api/v1"]
+        PG[("PostgreSQL - transactional source of truth")]
+        LIMIT["In-process rate limiter - ADR-036 (no Redis/Memurai)"]
+        STORE[("Document store - Phase 1 local NTFS volume / Phase 2 AWS S3 (private, proxied)")]
+        CLAMD["clamd (ClamAV INSTREAM)"]
+    end
+
+    ERP[("DataMan ERP - SQL Server - READ-ONLY")]
+
+    GATE --> BROWSER
+    GDOC --> BROWSER
+    QC --> BROWSER
+    HO --> BROWSER
+    ACC --> BROWSER
+    ADM --> BROWSER
+    BROWSER -->|"HTTPS /api/v1 (cookie __Host-kpmpl_sid or Bearer ES256)"| API
+    API --> PG
+    API --> LIMIT
+    API -->|"proxied bytes only - no presigned URLs"| STORE
+    API -->|"INSTREAM scan - fail-closed 422"| CLAMD
+    API -->|"tiberius, TLS, readonly intent, SELECT-only"| ERP
+
+    NOTE["The browser never touches the object store or DataMan directly"]
+    BROWSER -.-> NOTE

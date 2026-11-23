@@ -1,0 +1,139 @@
+erDiagram
+    User ||--o{ UserRole : "grants"
+    Role ||--o{ UserRole : "held by"
+    Role ||--o{ RoleCapability : "grants"
+    Capability ||--o{ RoleCapability : "granted to"
+    User ||--o{ Session : "owns"
+    Session ||--o{ RefreshTokenHistory : "rotation history"
+    User ||--o{ ReceivingVisit : "createdBy"
+    ReceivingVisit ||--o{ Weighment : "weights (correctsId chain)"
+    ReceivingVisit ||--o| QCInspection : "inspected by"
+    QCInspection ||--o{ QCRevision : "revisions (supersedesId chain)"
+    QCRevision ||--o{ QCMeasurement : "readings"
+    QCInspection ||--o{ QCReview : "decisions"
+    ReceivingVisit ||--o| VehicleExit : "exit row"
+    GRNReference ||--o{ GRNLink : "linked by"
+    ReceivingVisit ||--o{ GRNLink : "links"
+    DocumentPackage ||--o{ PackageVisit : "contains"
+    ReceivingVisit ||--o| PackageVisit : "packaged once (visitId UNIQUE)"
+    DocumentPackage ||--o{ PackageItem : "6 fixed categories"
+    DocumentPackage ||--o{ DocumentFile : "pdf custody"
+    DocumentPackage ||--o{ PackageCorrection : "correction requests"
+    DocumentPackage ||--o{ PackageHistory : "history labels"
+    DocumentPackage ||--o{ ErpMilestone : "3 slots (packageId,type UNIQUE)"
+    DocumentPackage ||--o{ Reminder : "in-app reminders"
+    DocumentPackage ||--o| AccountingRecord : "one case (stage vocabulary)"
+    DocumentPackage ||--o| AccountingCheck : "physical accounting_checks"
+    DocumentPackage ||--o{ AccountingCorrection : "append-only"
+    AuditEvent ||--o| AuditCheckpoint : "PROPOSED Delta-4 boundary pointer"
+
+    User {
+        uuid id PK
+        string fullName
+        string passwordHash "argon2id 19456/2/1"
+        boolean isActive
+        boolean mustChangePassword
+    }
+    Session {
+        uuid id PK
+        uuid userId FK
+        string refreshTokenHash UK
+        timestamptz expiresAt
+        timestamptz lastSeenAt
+        timestamptz revokedAt
+    }
+    ReceivingVisit {
+        uuid id PK
+        string officialGateEntryRef "indexed NON-unique"
+        string visitStatus "created/completed verified"
+        int version "optimistic lock"
+        uuid createdBy FK
+    }
+    Weighment {
+        uuid id PK
+        uuid visitId FK
+        string kind "gross|tare"
+        numeric value "NUMERIC(12,3)"
+        uuid correctsId "UNIQUE self-FK"
+    }
+    DocumentPackage {
+        uuid id PK
+        string packageRef UK
+        string status "12 verified values"
+        int version "If-Match"
+    }
+    DocumentFile {
+        uuid id PK
+        uuid packageId FK
+        string category
+        string storageKey UK
+        string storageVersionId "PROPOSED Delta-12: S3 VersionId pin"
+        string storageEtag "PROPOSED Delta-12"
+        string sha256 "CHAR(64) server-side; verified on read (ADR-032)"
+        string scanStatus "clean|infected|unscanned|pending_scan"
+        timestamptz deletedAt
+    }
+    DocumentAccessLog {
+        bigint id PK
+        uuid actorId
+        uuid fileId
+        uuid packageId
+        timestamptz at
+        string outcome
+    }
+    %% DocumentAccessLog is PROPOSED (Delta-15, KR-43) - outside the hash chain
+    AccountingRecord {
+        uuid id PK
+        uuid packageId "UNIQUE"
+        string stage "with_accountant|with_head_accountant|approved|posted"
+        numeric invoiceAmount "NUMERIC(12,2) nullable staff-typed"
+    }
+    AccountingCheck {
+        uuid id PK
+        uuid packageId "UNIQUE"
+        boolean billPassed
+        boolean gstChecked
+        boolean tdsChecked
+    }
+    ErpMilestone {
+        uuid id PK
+        uuid packageId FK
+        string type "plant_head_grn_approval|purchase_voucher|final_posting"
+        string status "pending|confirmed|reversed"
+        string dataManRef "opaque"
+    }
+    AuditEvent {
+        bigint id PK
+        string entityType
+        string entityId
+        string action
+        string prevHash "CHAR(64)"
+        string rowHash "CHAR(64)"
+    }
+    IdempotencyRecord {
+        uuid id PK
+        uuid userId
+        string method
+        string path
+        string key
+        string requestHash
+        string status "completed only - nothing writes in_progress (VT writes.rs:151-152)"
+        jsonb responseBody
+        timestamptz expiresAt "24h"
+    }
+    Outbox {
+        bigint id PK
+        string topic
+        jsonb payload
+        string dedupeKey
+        int attempts
+    }
+    %% Outbox is PROPOSED (Delta-3, conditional on OD-14)
+    ErpEvidenceSnapshot {
+        uuid id PK
+        string kind
+        string matchState "6 states"
+        jsonb facts "includes payment date/ref when Delta-2 is formally approved"
+        timestamptz fetchedAt
+    }
+    %% ErpEvidenceSnapshot is PROPOSED (Delta-2, OD-08 + Q D4)

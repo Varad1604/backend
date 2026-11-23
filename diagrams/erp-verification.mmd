@@ -1,0 +1,42 @@
+sequenceDiagram
+    autonumber
+    participant API as kpmpl-api
+    participant V as EvidenceVerifier (port)
+    participant R as ErpReader (port)
+    participant ERP as DataMan SQL Server (read-only)
+
+    Note over API,ERP: Visit-creation evidence verification (fail-closed)
+    API->>V: verify_receiving_evidence {gateNo, year, docId?, fetchedAt?, manualReason?}
+    alt manual path (no docId)
+        V->>R: probe SELECT 1
+        alt ERP genuinely unreachable
+            R-->>V: outage
+            V-->>API: accept verification="manual_exception"
+        else ERP reachable
+            V-->>API: 422 "DataMan is available. Select the correct ERP entry..."
+        end
+    else docId path
+        V->>R: verify_selected_gate (TOP 2)
+        R->>ERP: parameterized SELECT (TLS, readonly intent)
+        ERP-->>R: rows (DECIMAL via rust_decimal, MONEY via CAST, raw ApprovalStatus)
+        R-->>V: facts + provenance
+        alt row count != 1
+            V-->>API: 422 NO_MATCH / MULTIPLE_MATCHES
+        else field mismatch without manualReason
+            V-->>API: 422 "DataMan verification failed."
+        else mismatch WITH manualReason (V1.2, KR-22)
+            V-->>API: proceed, provenance = server_verified_with_override (fields listed), beyond owner tolerance needs supervisor approval
+        else real outage
+            V-->>API: 503 ERP_UNAVAILABLE ("no substitute data")
+        else match
+            V-->>API: verification="server_verified" (replayed from receiving_created audit)
+        Note over V,API: no evidence supplied => provenance unverified_no_claim, manual-exception visits are re-verified by the reconciliation job after ERP recovery (KR-22)
+        end
+    end
+
+    Note over API,ERP: Workflow read surfaces (rows 50-55 of the contract map)
+    API->>R: gate_lookup / gate_entries / live_gate_facts / live_bills_for_gate
+    R->>ERP: SELECT/WITH-only statement set (TOP bounds, ROW_NUMBER paging)
+    ERP-->>R: rows
+    R-->>API: projections + meta.source + meta.fetchedAt (no cache in v1)
+    API-->>API: MT->kg string shift, KG passthrough, mixed unit -> unverified, NULL -> null

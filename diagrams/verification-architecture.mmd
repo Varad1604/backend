@@ -1,0 +1,35 @@
+flowchart TB
+    subgraph LANES["Test layers (L1..L9)"]
+        L1["L1 unit: domain crate (weights, money, shifts, state machines, policy)"]
+        L2["L2 service: use cases with fake ports"]
+        L3["L3 integration: SQLx + real PG; LocalFileStore test double + clamd via test containers"]
+        L4["L4 contract: every route vs the 58-op map + httpAdapter expectations"]
+        L5["L5 differential-parity: Node vs Rust byte-identical golden paths (fixtures F-01..F-58; executed 0/58 - NOT YET PROVEN)"]
+        L5B["L5b shadow-read: GET-only both stacks, same PG, offline compare"]
+        L6["L6 browser: Playwright role journeys + concurrent multi-user"]
+        L7["L7 security: 58-route guard enumeration, denial matrix, CSRF, EICAR, store ACL privacy, ERP write probe"]
+        L8["L8 recovery: restore drill, kill -9, dependency-outage injection"]
+        L9["L9 load: 60 users, p95 targets (owner values OD-10)"]
+    end
+    subgraph CI["CI gates (per PR)"]
+        GATE["fmt, clippy -D warnings, dep-edges, unit, integration (disposable DB), contract, migration check (baseline==schema, migrate-from-zero), cargo-audit/deny/gitleaks/SAST, edge-config validate, route-manifest drift (58 fixtures), mermaid lint lane"]
+    end
+    subgraph EV["Evidence classes (E1..E4)"]
+        E1["E1 source-static (file:line)"]
+        E2["E2 design-artifact (this package)"]
+        E3["E3 owner-signed decision"]
+        E4["E4 executed-runtime - only E4 may say PASS; today ZERO E4 rows"]
+    end
+    subgraph SUITES["Mandatory acceptance suites"]
+        MS["auth+lockout, RBAC matrix, golden M1/M2, accounting, R-01..R-22, idempotency, concurrency, atomicity, decimals+decode-type, uploads (EICAR/scanner-down/replay), audit, ERP read-only, sessions (per-user cap regression)"]
+    end
+
+    L1 --> CI
+    L2 --> CI
+    L3 --> CI
+    L4 --> CI
+    CI --> E4
+    L5 --> MS
+    L5B --> MS
+    MS --> E4
+    E1 --> E2 --> E3

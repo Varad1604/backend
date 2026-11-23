@@ -1,0 +1,31 @@
+stateDiagram-v2
+    direction LR
+    [*] --> draft : POST create (docs.prepare)
+    draft --> ready_for_gate_check : mark_ready (docs.prepare; all rows resolved)
+    ready_for_gate_check --> draft : back_to_draft (docs.submit, reason)
+    ready_for_gate_check --> submitted_to_ho : submit_to_ho (docs.submit, confirmComplete)
+    correction_requested --> resubmitted : submit_to_ho (docs.submit, responseNote)
+    submitted_to_ho --> under_ho_review : start_review (ho.review)
+    resubmitted --> under_ho_review : start_review (ho.review)
+    returned_to_ho --> under_ho_review : start_review (ho.review)
+    under_ho_review --> correction_requested : request_correction (ho.review, reason + categories)
+    under_ho_review --> verified : verify (ho.review; every attached row ok)
+    verified --> with_accounting : start_accounting (accounting.review)
+    with_accounting --> accounting_approved : approve_accounting (accounting.approve; 3 checks ok)
+    accounting_approved --> bill_posted : post_bill (accounting.post; TERMINAL)
+    with_accounting --> returned_to_ho : return_to_ho (accounting.approve)
+    accounting_approved --> returned_to_ho : return_to_ho (accounting.approve)
+    ready_for_gate_check --> draft : file/applicability change (R-11 demotion)
+    bill_posted --> [*]
+
+    note right of draft
+        12 verified values (ADR-028).
+        GATE_EDITABLE = draft, ready_for_gate_check, correction_requested.
+        HO_VISIBLE = 9 (submitted_to_ho..bill_posted).
+        ACCOUNTING_VISIBLE = verified + ACCOUNTING_STATES(4).
+        final_posting is an ErpMilestone TYPE, never a package status.
+        OQ-9 transitional labels are owner items, not enum values.
+    end note
+    note right of accounting_approved
+        with_head_accountant stage RETIRED (owner A1) - see 06 Appendix H
+    end note

@@ -1,0 +1,43 @@
+flowchart TB
+    subgraph API["kpmpl-api (bin) - composition root"]
+        ROUTES["routes/ (thin: extract, validate, call, map)"]
+        MW["middleware/ (cors, auth, csrf, rate_limit, request_id)"]
+        ERRMAP["errors.rs (AppError to HTTP + envelope)"]
+        MAIN["main.rs + state.rs + config.rs"]
+        JOBRT["jobs.rs (Tokio spawns + advisory-lock guards)"]
+    end
+    subgraph APP["kpmpl-app"]
+        SERVICES["services/ (auth, session, receiving, weighment, qc, documents, ho, accounting, reports, admin, erp)"]
+        PORTS["ports.rs (VisitRepo, QcRepo, PackageRepo, AuditSink, ErpReader, EvidenceVerifier, DocumentStore, MalwareScanner, RateLimiter, Clock, IdGen, SessionStore)"]
+        DTO["dto/ (wire-exact mirrors of the OpenAPI contract)"]
+        WRAP["idempotency.rs (the mutating-use-case wrapper)"]
+    end
+    subgraph INFRA["kpmpl-infra"]
+        PGR["pg/ (SQLx repos + migrator 0001_baseline.sql + incrementals)"]
+        ERPA["erp/ (tiberius pool, SQL constants, type-dispatched decode)"]
+        S3A["files/ (LocalFileStore on NTFS - ADR-035, the only adapter)"]
+        AV["scan/ (ClamAV INSTREAM client)"]
+        CACHE["limit/ (in-process per-replica limiter; durable PG lockout - ADR-036)"]
+    end
+    subgraph DOM["kpmpl-domain (pure: no async, no I/O)"]
+        TYPES["ids, weight, money, erp_ref, erp_weight"]
+        SM["visit, qc, package, accounting, milestone, file_scan state machines"]
+        POL["policy.rs (capability matrix mirror)"]
+    end
+
+    ROUTES --> SERVICES
+    MW --> ROUTES
+    SERVICES --> PORTS
+    SERVICES --> DTO
+    WRAP --> SERVICES
+    PGR -.->|"implements"| PORTS
+    ERPA -.->|"implements"| PORTS
+    S3A -.->|"implements"| PORTS
+    AV -.->|"implements"| PORTS
+    CACHE -.->|"implements"| PORTS
+    SERVICES --> TYPES
+    SERVICES --> SM
+    PGR --> TYPES
+    ERPA --> TYPES
+    MAIN --> ROUTES
+    MAIN --> JOBRT

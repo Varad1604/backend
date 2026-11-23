@@ -1,0 +1,35 @@
+sequenceDiagram
+    autonumber
+    actor U as User (browser or mobile)
+    participant API as kpmpl-api
+    participant RL as in-process rate limiter (ADR-036)
+    participant DB as PostgreSQL
+
+    U->>API: POST /api/v1/auth/login {username, password}
+    API->>RL: 5/min per IP+username (per-replica), progressive account delay, lockout
+    API->>API: argon2id verify (dummy hash for unknown user, identical 401)
+    API->>DB: BEGIN (per-user advisory lock 6200001,hashtext(userId)): count live sessions
+    alt over SESSION_MAX_PER_USER (default 5)
+        API->>DB: revoke THIS user's oldest sessions + audit session_evicted (fix F-07)
+    end
+    API->>DB: INSERT Session (refresh_token_hash, csrf_token_hash, 12h) + audit COMMIT
+    API-->>U: web: __Host-kpmpl_sid cookie / mobile: refresh + ES256 access (15 min)
+
+    U->>API: POST /api/v1/auth/refresh (mobile)
+    API->>DB: verify hash, check idle 2h + absolute 12h
+    alt presented secret matches history (reuse)
+        API->>DB: revoke session + audit refresh_reuse_revoked (fix F-06 restores this)
+        API-->>U: 401
+    else valid
+        API->>DB: BEGIN: new refresh hash + RefreshTokenHistory insert COMMIT
+        API-->>U: new tokens
+    end
+
+    U->>API: any write (cookie)
+    API->>API: CSRF proof: Origin allowlist + X-Requested-With: kpmpl-web
+    API->>DB: in-tx re-verification: session live + user active (else 401)
+
+    U->>API: POST /api/v1/auth/change-password
+    API->>DB: BEGIN: passwordHash update + mustChangePassword=false + revoke other sessions + audit COMMIT
+
+    Note over U,DB: first-login (mustChangePassword=true): only /auth/me, /auth/logout, /auth/change-password served
