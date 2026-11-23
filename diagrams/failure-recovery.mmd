@@ -1,0 +1,29 @@
+flowchart TB
+    subgraph DOMAINS["Failure domains and degradation (from the FMEA, doc 10)"]
+        PGD["PostgreSQL down<br/>ALL writes fail; fail-closed 503; PITR protects"]
+        LIMD["Limiter (in-process, ADR-036)<br/>no external limiter outage exists"]
+        S3D["Document store down<br/>uploads/downloads 503; workflows without PDFs continue"]
+        AVD["clamd down<br/>uploads fail-closed 422 exact message; reads fine"]
+        ERPD["DataMan down<br/>/erp/* 503 ERP_UNAVAILABLE; no substitution ever"]
+        EDGED["Edge down<br/>all traffic; failover per OD-01; API loopback unaffected"]
+    end
+    subgraph DETECT["Detection"]
+        RZ["/readyz: database, storage (503 when critical fails; no Redis - ADR-036)"]
+        LOGS["Structured JSON logs + requestId; alert set: readyz>2min, chain invalid, backup>26h, disk>80%, 5xx>2%, ERP>30min"]
+        SELFC["Audit self-check job every 6h; anchor file matches head"]
+    end
+    subgraph RECOVER["Recovery"]
+        PITR["pg_restore latest dump + WAL replay (RPO/RTO owner-pending OD-10)"]
+        IMG["App defect: redeploy previous image (additive-schema compatible - ADR-018).<br/>Infra failures recover differently: limiter restart resets in-process budgets (durable lockout persists in PG - ADR-036); clamd restart unblocks uploads (fail-closed 422 meanwhile); store restore from the off-host backup pair (ADR-033 watermark restore); edge config rollback/validate"]
+        DRILL["Quarterly restore drill: DB + one PDF; hash + chain verify valid=true"]
+        BOUND["Rollback boundary = previous release image; destructive-schema boundary is PROHIBITED (two-release rule)"]
+    end
+
+    PGD --> PITR
+    S3D --> IMG
+    AVD --> IMG
+    EDGED --> IMG
+    RZ --> LOGS
+    SELFC --> DRILL
+    PITR --> BOUND
+    DRILL --> BOUND

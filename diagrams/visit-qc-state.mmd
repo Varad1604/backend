@@ -1,0 +1,44 @@
+stateDiagram-v2
+    direction TB
+    state Visit {
+        [*] --> created
+        created --> created : PATCH correct_visit (receiving.edit, reason, OCC)
+        created --> completed : terminal workflow event (verified writes only)
+        completed --> [*]
+    }
+    note right of created
+        Derived domains (NEVER stored columns):
+        qcStatus from QCInspection/QCReview
+        exit fact from VehicleExit row
+        grnStatus from GRNLink
+        weights from Weighment head resolution
+        exitStatus on_premises/exited is a LIST-ROUTE QUERY enum only
+    end note
+    state Weighment_chain {
+        [*] --> GrossRecorded
+        GrossRecorded --> TareRecorded : R-04 (0 < tare < gross, not exited)
+        GrossRecorded --> GrossCorrected : new row + correctsId (reason)
+        TareRecorded --> TareCorrected : new row + correctsId (reason)
+    }
+    state QC {
+        [*] --> QCPending
+        QCPending --> QCSubmitted : submit readings (R-07)
+        QCSubmitted --> QCReturned : outcome returned
+        QCReturned --> QCSubmitted : resubmit (revisionReason, supersedesId chain)
+        QCSubmitted --> Accepted : outcome accepted
+        QCSubmitted --> AcceptedWithDeduction : outcome accepted_with_deduction (D-02 not_configured)
+        QCSubmitted --> Rejected : outcome rejected
+        Accepted --> [*]
+        AcceptedWithDeduction --> [*]
+        Rejected --> [*]
+    }
+    state NightHold {
+        [*] --> Held
+        Held --> QCSubmitted : morning shift decision (A12, Delta-11)
+    }
+    note right of QCPending
+        Exit guard R-05 V1.2 (KR-04): the verified deny-list lets exit at
+        submitted/returned - the V1.2 design re-expresses R-05 as an ALLOW-LIST of
+        terminal decisions (accepted, accepted_with_deduction, rejected) + movement.exit_override
+        (PENDING OD-06/OD-18). Night hold (A12) defers the decision to the morning shift.
+    end note

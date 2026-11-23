@@ -1,0 +1,34 @@
+flowchart TB
+    subgraph STAGES["Cutover stages (ADR-021: Ling discipline + ZCode single-writer semantics)"]
+        S0["S0 platform: CI + security lanes + release image first"]
+        S15["S1-S5 build-and-verify per domain<br/>Node :3000 and Rust :3010 EACH on their own clone DB<br/>gate = 58-fixture contract suite"]
+        S6["S6 GET-only shadow on a FROZEN PITR CLONE at pinned T (KR-05): read-only DB role or SHADOW_MODE; corpus from production logs valid at T; zero n_tup deltas; discard clone (owner-set soak)"]
+        S7["S7 SINGLE-WRITER full-surface cutover<br/>proxy upstream switch; session continuity kit (P-01/P-02 probes, dual-verify); Node warm 1 cycle; 48h hypercare"]
+        S8["S8 decommission Node by dated criteria"]
+        S0 --> S15 --> S6 --> S7 --> S8
+    end
+
+    subgraph WRITER["Writer rule (verified coupling argument)"]
+        W1["At every instant exactly ONE stack holds write authority (whole-DB; edge routing + write-role revocation)"]
+        W2["REJECTED: per-domain writers across stacks - accounting writes package.status AND AccountingRecord.stage in ONE transaction (documents.rs:2383/2391/2455/2481)"]
+        W1 --- W2
+    end
+
+    subgraph SCHEMA["Schema compatibility & rollback (ADR-018)"]
+        M1["sqlx migrate run (separate step; advisory-locked). V1.2 (KR-29): tx-per-migration EXCEPT CREATE INDEX CONCURRENTLY steps, which run as no-transaction migrations with IF NOT EXISTS + an invalid-index cleanup step"]
+        M2["Additive-only within a release train; CI proves old-image-on-new-schema"]
+        M3["Destructive change = two-release sequence; rollback across it PROHIBITED"]
+        M4["Physical apply-state reconciliation vs restored dump = owner-gated pre-cutover task (Q1-Q12 probes)"]
+        M1 --> M2 --> M3
+        M4 --> M1
+    end
+
+    subgraph RB["Rollback paths"]
+        RB1["App defect: redeploy previous image (no data action)"]
+        RB2["Tx-migration failure: no half-state; fix-forward. Concurrent-index failure: INVALID index remains -> cleanup step drops/retries (KR-29)"]
+        RB3["Data corruption: PITR restore + re-anchor audit + incident report"]
+        RB4["Pre-S7: reversible by edge switch; post-S7 data-shaping = restore-from-backup only (PoNR)"]
+    end
+
+    S7 --> RB1
+    M3 --> RB4

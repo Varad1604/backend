@@ -1,0 +1,51 @@
+flowchart TB
+    subgraph IA["Identity & Access"]
+        USS["User, Role, Capability, Session, RefreshTokenHistory"]
+    end
+    subgraph REC["Receiving"]
+        VIS["ReceivingVisit, Weighment, ReferenceValue"]
+    end
+    subgraph QCX["QC"]
+        QCS["QCInspection, QCRevision, QCMeasurement, QCReview"]
+    end
+    subgraph MOV["Movement & GRN"]
+        MV["VehicleExit, GRNReference, GRNLink"]
+    end
+    subgraph DOC["Documents"]
+        PKG["DocumentPackage, PackageVisit, PackageItem, DocumentFile, PackageCorrection, PackageHistory"]
+    end
+    subgraph HOM["HO & ERP Milestones"]
+        MS["ErpMilestone, Reminder"]
+    end
+    subgraph ACCC["Accounting"]
+        AR["AccountingRecord, AccountingCheck, AccountingCorrection"]
+    end
+    subgraph REP["Reporting (read-only)"]
+        RPT["overview counters, CSV"]
+    end
+    subgraph ERPC["ERP Read Adapter (DataMan, read-only)"]
+        ERP["gate lookup/entries/live facts/bills"]
+    end
+    AUD["Audit (AuditEvent, append-only hash chain - written in-tx by ALL contexts)"]
+
+    IA -->|"session actor"| REC
+    REC -->|"visit snapshot"| QCX
+    QCX -->|"creates QC rows + bumps visit.version (qcStatus is a DERIVED projection - 04 s1.6)"| REC
+    MOV -->|"reads visit"| REC
+    DOC -->|"reads visit snapshots"| REC
+    DOC -->|"reads visit"| MOV
+    HOM -->|"status-gated reads"| DOC
+    ACCC -->|"writes package.status + AccountingRecord.stage in ONE tx (verified coupling)"| DOC
+    REP -->|"reads all"| REC
+    REP -->|"reads all"| DOC
+    REP -->|"reads all"| ACCC
+    ERPC -->|"evidence verification at visit create"| REC
+    ERPC -->|"GRN verification"| MOV
+    AUD <-.->|"audit append via AuditSink port (in-tx)"| REC
+    AUD <-.->|"audit append"| QCX
+    AUD <-.->|"audit append"| DOC
+    AUD <-.->|"audit append"| ACCC
+    AUD <-.->|"audit append"| IA
+
+    RULE["Rule: no context writes another context's tables; new cross-context reads go through application services"]
+    DOC -.-> RULE

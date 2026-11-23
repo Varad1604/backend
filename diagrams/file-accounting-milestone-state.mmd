@@ -1,0 +1,34 @@
+stateDiagram-v2
+    direction TB
+    state FileScan {
+        [*] --> pending_scan
+        pending_scan --> clean : verdict OK (server sha256 recorded at insert)
+        pending_scan --> unscanned : SCAN_FAIL_CLOSED=false only (never served)
+        clean --> SoftDeleted : DELETE (deletedAt set, bytes retained)
+        SoftDeleted --> [*]
+    }
+    note right of pending_scan
+        pending_scan is the column DEFAULT - the verified upload path always writes the
+        final verdict, no code writes pending_scan (V1.2 KR-31).
+        Infected uploads are REJECTED 422 and never stored (custody protocol ADR-022).
+    end note
+    state AccountingStage {
+        [*] --> with_accountant : start_accounting
+        with_accountant --> approved : approve_accounting (3 checks ok)
+        note right of approved
+            with_head_accountant stage is RETIRED (owner A1) - see 06 Appendix H
+        end note
+        approved --> posted : post_bill (terminal, duplicate 422, eligibility re-validated ADR-030)
+        with_accountant --> with_accountant : return_to_ho (record kept, approver cleared)
+        posted --> [*]
+    }
+    state Milestone {
+        [*] --> Mpending
+        Mpending --> confirmed : confirm (order R-19, dataManRef for first two)
+        confirmed --> Mpending : reverse (latest-only, reason required, status resets to PENDING - source-verified documents.rs 2140, reversedAt/reversalReason record the reversal)
+        confirmed --> [*]
+    }
+    note right of with_accountant
+        stage is a SEPARATE vocabulary from package.status
+        (with_accountant to with_accounting mapping documented in doc 06 s8)
+    end note

@@ -1,0 +1,31 @@
+sequenceDiagram
+    autonumber
+    actor HO as HO Accounts
+    participant API as kpmpl-api
+    participant DB as PostgreSQL
+    actor ACC as Accountant / Head Accountant
+
+    HO->>API: POST /head-office/reviews {packageId, category, check, note}
+    API->>DB: BEGIN: PackageItem.hoCheck + audit COMMIT (under_ho_review only)
+    HO->>API: POST .../actions {kind:"verify"}
+    API->>DB: BEGIN: status verified + audit COMMIT (every attached row ok, N/A exempt)
+    HO->>API: POST .../erp-milestones {type:"plant_head_grn_approval"|"purchase_voucher", action:"confirm", dataManRef, verifiedInDataManByStaff}
+    ACC->>API: POST .../erp-milestones {type:"final_posting", action:"confirm", dataManRef} (canonical arm map: erp.final_posting - KR-21, V1.3 owner-endorsed, sign-off PENDING: dataManRef MANDATORY for all three milestones)
+    API->>API: order guard R-19 (plant-head -> voucher -> posting), actor-distinctness vs bill poster (ADR-029, pending OD-15/17)
+    API->>DB: BEGIN: ErpMilestone confirm + audit COMMIT
+    API-->>HO: 200 "Manually confirmed by staff (not an ERP feed)", DataMan cross-check when reachable => server_matched / unmatched_manual
+    HO->>API: POST .../erp-milestones {action:"reverse", note}
+    API->>DB: BEGIN: latest-confirmed-only reversal: status back to PENDING + reversedAt/reversalReason (source-verified documents.rs:2140) + audit COMMIT
+
+    ACC->>API: POST .../accounting {kind:"start_accounting"}
+    API->>DB: ONE tx: package.status=with_accounting + AccountingRecord(stage=with_accountant) + audit
+    Note over API,DB: verified coupling: package.status and AccountingRecord.stage change together (ADR-021 argument)
+    ACC->>API: POST /accounting/cases/{id}/checks (3 flags, flagged D-07-2: no IK today)
+    ACC->>API: POST .../accounting {kind:"record_amounts"} (staff-typed, locked post-approval B-12)
+    ACC->>API: POST .../accounting {kind:"approve_accounting"}
+    API->>API: all three checks ok required
+    API->>DB: ONE tx: status accounting_approved + stage approved + audit
+    ACC->>API: POST .../accounting {kind:"post_bill", billRef}
+    API->>DB: ONE tx: status bill_posted (TERMINAL) + stage posted + audit ("not an ERP confirmation")
+    ACC->>API: POST .../accounting {kind:"return_to_ho", reason, failedChecks}
+    API->>DB: ONE tx: status returned_to_ho + stage reset with_accountant + approver cleared + audit

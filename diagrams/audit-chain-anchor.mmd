@@ -1,0 +1,21 @@
+flowchart LR
+    subgraph DB["PostgreSQL (append-only; INSERT-only trigger + REVOKE UPDATE/DELETE)"]
+        E1["AuditEvent row 1<br/>prevHash=NULL, rowHash=H1"]
+        E2["AuditEvent row 2<br/>prevHash=H1, rowHash=H2"]
+        E3["AuditEvent row n<br/>prevHash=H(n-1), rowHash=Hn (chain head)"]
+        E1 --> E2 --> E3
+        LOCK["Append under advisory lock 6200002; id + clock_timestamp allocated in one statement"]
+        E3 -.-> LOCK
+    end
+    subgraph ANCHOR["External anchoring (ADR-012)"]
+        JOB["Daily anchor export job (guard 6200023)"]
+        A1["anchor file day1 {headRowId, headHash, rowCount, prevAnchorHash}"]
+        A2["anchor file day2 (chained)"]
+        CP["PROPOSED Delta-4 AuditCheckpoint: signed boundary pointer; signer key OFF app host (OD-13)"]
+        JOB --> A1 --> A2
+        E3 --> JOB
+        A2 -.-> CP
+    end
+    VERIFY["GET /audit/verification walks the chain {valid, checked, invalidEventId}"]
+    ALERT["6-hourly self-check job alerts on invalid"]
+    E3 --> VERIFY --> ALERT

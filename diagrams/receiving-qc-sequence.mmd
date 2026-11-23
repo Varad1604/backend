@@ -1,0 +1,41 @@
+sequenceDiagram
+    autonumber
+    actor Gate as Gate Operator
+    participant API as kpmpl-api (Rust)
+    participant DB as PostgreSQL
+    participant ERP as DataMan (read-only)
+    actor QC as QC Operator
+
+    Gate->>API: POST /api/v1/receiving-visits (Idempotency-Key, body includes grossWeight - VT receiving.schemas.ts:35)
+    Note over API,DB: the dup-gate advisory lock 6200011 is TRANSACTION-scoped, taken INSIDE the tx (like 6200010)
+    alt erpEvidence present
+        API->>ERP: verify_selected_gate (exactly 1 row)
+        ERP-->>API: matched facts / mismatch / outage
+        alt mismatch without reason
+            API-->>Gate: 422 "DataMan verification failed."
+        else real outage
+            API-->>Gate: 503 ERP_UNAVAILABLE (no substitution)
+        end
+    end
+    API->>DB: BEGIN: dup-gate advisory lock (in-tx) + visit insert (version=1, gross) + AuditEvent(receiving_created) + IdempotencyRecord
+    DB-->>API: COMMIT (advisory lock released)
+    API-->>Gate: 201 {data: VisitSnapshot}
+
+    Note over Gate,API: gross is normally captured at visit creation (grossWeight), POST /weighments accepts kind gross|tare per the verified schema (receiving.schemas.ts:44)
+
+    QC->>API: POST .../qc-inspections (intent draft|submit)
+    API->>DB: BEGIN: QCInspection + QCRevision + measurements + visit.qcStatus/version + audit COMMIT
+    API-->>QC: 201
+    QC->>API: POST /qc-inspections/{id}/decisions {outcome, reason}
+    API->>DB: BEGIN: QCReview + visit.version bump (If-Match arm) + audit COMMIT
+    API-->>QC: 200
+
+    Gate->>API: POST .../weighments {kind:"tare"}
+    API->>API: gross lookup, guard: tare < gross, not exited
+    API->>DB: BEGIN: Weighment(tare or correction row w/ correctsId) + audit COMMIT
+    API-->>Gate: 201
+
+    Gate->>API: POST .../exit {millChecksConfirmed:true}
+    API->>API: R-05 preconditions (not exited, tare present, QC decided, time window)
+    API->>DB: BEGIN: VehicleExit + audit COMMIT
+    API-->>Gate: 201

@@ -1,0 +1,30 @@
+flowchart TB
+    subgraph V1["v1 external effects (confirmed scope) - ADR-014"]
+        UP["Upload: LocalFileStore publish (outside tx) --> one DB tx --> staged-file compensation on tx failure (ADR-035)"]
+        SWEEP["Nightly orphan sweep: list store vs DocumentFile rows; report-only first; delete orphans > 24h"]
+        ANCHOR["Daily audit anchor export: head hash + prevAnchorHash to the off-host anchor store (versioned; key custodian = client IT, B2)"]
+        PURGE["Hourly purges: expired idempotency rows (24h TTL), revoked sessions > 7d, refresh history > 30d"]
+        SELFCHECK["6-hourly audit self-check: chain walk; alert on invalid"]
+        JOB["All jobs: in-process Tokio tasks guarded by pg_advisory_lock(6200020..6200024); safe under 2 replicas"]
+        UP --> JOB
+        SWEEP --> JOB
+        ANCHOR --> JOB
+        PURGE --> JOB
+        SELFCHECK --> JOB
+    end
+
+    subgraph FUTURE["PROPOSED future component - only when email reminders are formally approved (OD-14)"]
+        TX["Business tx: rows + audit + idem + OUTBOX row (same tx - Ling B06 rule)"]
+        CLAIM["After COMMIT: claimer (lease 6200012, SKIP LOCKED)"]
+        DELIVER["Deliver topic (email via Notifier, in-app row) - AT-LEAST-ONCE"]
+        DLQ["Retry budget 8 -> DLQ rows topic='dlq' + alert"]
+        IDEM["Consumers idempotent on dedupe_key = topic + object id"]
+        TX --> CLAIM
+        CLAIM --> DELIVER
+        DELIVER -->|"failure"| DLQ
+        DELIVER --> IDEM
+    end
+
+    RULE["FR-03 resolution: v1 claims NO cross-store atomicity; effects are compensated or re-runnable. The outbox is retained as a designed future component, never claimed exactly-once."]
+    V1 -.-> RULE
+    FUTURE -.-> RULE
