@@ -4,7 +4,7 @@
 // Upgrade 2026-11-03 (user direction): `accountant` and `head_accountant` join the
 // matrix and carry the HO → Accountant → Head Accountant → Bill Posted workflow
 // (capabilities `accounting.*`). The matrix stays data-driven (D-07): roles and
-export const briefRoleCodes = ['gate', 'gate_doc', 'gate_doc_authority', 'qc', 'ho', 'accountant', 'head_accountant', 'admin'] as const;
+export const briefRoleCodes = ['gate', 'gate_doc', 'gate_doc_authority', 'qc', 'ho', 'accountant', 'admin'] as const;
 export type RoleCode = typeof briefRoleCodes[number];
 // Historical rows (qc_operator, qc_manager, …) may still exist in the database; the API
 // no longer accepts or assigns them (CONTRACT_DIFF #65, decision A).
@@ -36,8 +36,7 @@ const headOffice = ['receiving.view', 'overview.view', 'ho.inbox', 'ho.review', 
 // Accountant: sees the accounting queue, works verified packages, hands over to the
 // Head Accountant. Head Accountant: approves, posts the bill. Least privilege: neither
 // holds ho.review or erp.confirm (HO keeps those), and corrections need a reason.
-const accountant = ['receiving.view', 'overview.view', 'accounting.inbox', 'accounting.review'] as const;
-const headAccountant = [...accountant, 'accounting.approve', 'accounting.post', 'erp.final_posting'] as const;
+const accountant = ['receiving.view', 'overview.view', 'accounting.inbox', 'accounting.review', 'accounting.approve', 'accounting.post', 'erp.final_posting'] as const;
 const administrator = ['receiving.view', 'overview.view', 'ho.inbox', 'admin.users'] as const;
 
 // briefRoleCodes defined in line 7 as const string array
@@ -52,7 +51,6 @@ export const roleCapabilities: Record<RoleCode, readonly Capability[]> = {
   qc: [...qcOperator, 'receiving.read', 'qc.queue', 'qc.submit'],
   ho: headOffice,
   accountant,
-  head_accountant: headAccountant,
   admin: [...administrator, 'identity.manage', 'audit.verify'],
 };
 

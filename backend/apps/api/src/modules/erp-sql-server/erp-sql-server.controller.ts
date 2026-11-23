@@ -3,6 +3,7 @@ import type { FastifyReply, FastifyRequest } from 'fastify';
 import { ErpSqlServerService } from './erp-sql-server.service';
 import { Requires } from '../../modules/identity-access/access.decorators';
 import { ErpQueryParam } from './erp-sql-server.service';
+import { normalizeErpWeight, type ErpWeight } from './erp-weights';
 
 /**
  * Minimal ERP SQL Server read-only APIs — Phase 04B + Phase 05A acceptance corrections.
@@ -10,12 +11,27 @@ import { ErpQueryParam } from './erp-sql-server.service';
  * ALL endpoints are READ-ONLY: no INSERT/UPDATE/DELETE.
  * Every business-data endpoint requires @Requires('erp.read') capability.
  * ERP connection failures return 503; do not cascade to KPMPL workflows.
- * Use ONLY verified DataMan SQL Server table columns (Phase 03 acceptance metadata).
+ * Use ONLY verified DataMan SQL Server table columns (Phase 03 acceptance metadata,
+ * extended 2026-11-17 with the live-verified outgoing columns Out_Tare_Weight /
+ * Out_Net_Weight and the PChallanDetail unit-evidence column).
  * Parameterized SQL with @name syntax + request.input() via explicit ErpQueryParam array —
  * no ? placeholders, no string interpolation, no fragile variadic argument handling.
  *
- * Weight units: verified as Decimal(12,3) in kg (Phase 02 §SCOPE / DECISIONS). The DTO
- * therefore labels weights 'kg'; it never invents a unit (Phase 05A defect: 'tons').
+ * Weight units (live-verified 2026-11-17, read-only queries): gate entries WITH GRN
+ * evidence record weights in METRIC TONNES — PChallanDetail.Unit = 'MT', with
+ * DocQty = Weightment.Net_Weight and RecptQty/AcpQty = Weightment.Out_Net_Weight.
+ * Those scalars are normalized to kg exactly once, here at the adapter boundary
+ * (decimal-point shift ×1000 — see erp-weights.ts; never float multiplication, never
+ * recomputed). Gate entries WITHOUT GRN evidence have no verifiable unit: their raw
+ * values pass through with unit null and provenance 'unverified' — never relabeled,
+ * never converted, never guessed.
+ *
+ * Two different nets are preserved as recorded (they differ on real records and the
+ * reason is DataMan's business, not KPMPL's):
+ *   - netWeight       = Weightment.Net_Weight      (document net)
+ *   - scaleNetWeight  = Weightment.Out_Net_Weight  (weighbridge net)
+ * and the final outgoing tare comes from Weightment.Out_Tare_Weight — never the
+ * weigh-in Tare_Weight. NULL stays null (not recorded); zero is genuine zero.
  *
  * Errors use the backend-standard envelope `{ error: { code, message, fields? } }`
  * (modules/common/http-error.filter.ts) so the frontend `toApiErrorFromResponse`
@@ -24,6 +40,19 @@ import { ErpQueryParam } from './erp-sql-server.service';
  * Critical: Certificate trust is unresolved (production DBA confirmation required).
  * These endpoints will return 503 ERP_UNAVAILABLE until valid cert trust is configured.
  */
+
+/**
+ * Unit evidence for one gate entry, read from its GRN's PChallanDetail rows.
+ * The unit counts as verified ONLY when every non-null Unit on the gate's GRN
+ * details agrees (COUNT(DISTINCT) = 1); mixed or absent evidence yields NULL, which
+ * the adapter treats as "unverified" — it never guesses a unit.
+ * Scalar subquery: one value per gate entry, no extra join fan-out.
+ */
+const GRN_UNIT_SUBQUERY = (gateRef: 'gp' | 'g'): string => `
+        (SELECT CASE WHEN COUNT(DISTINCT pd.Unit) = 1 THEN MIN(pd.Unit) ELSE NULL END
+           FROM PChallanDetail pd
+          INNER JOIN PChallan pc ON pc.DocId = pd.DocId
+          WHERE pc.GIDocId = ${gateRef}.DocId AND pd.Unit IS NOT NULL) AS grnUnit`
 @Controller('erp')
 export class ErpSqlServerController {
   constructor(private readonly erpSqlServer: ErpSqlServerService) {}
@@ -34,10 +63,100 @@ export class ErpSqlServerController {
     return Number.isFinite(n) ? Math.trunc(n) : fallback;
   }
 
-  /** Scalar ERP weight → DTO. Unit is verified kg; value is stringified, never recomputed. */
-  private static weight(value: unknown): { value: string; unit: 'kg' } | null {
-    if (value === null || value === undefined) return null;
-    return { value: String(value), unit: 'kg' };
+  /**
+   * The gate's verified GRN unit evidence for this joined row (repeats per row of the
+   * same gate entry), or null when there is none. Raw column name: grnUnit.
+   */
+  private static grnUnitOf(row: { grnUnit?: unknown }): string | null {
+    return typeof row.grnUnit === 'string' && row.grnUnit.length > 0 ? row.grnUnit : null;
+  }
+
+  /** Only real connectivity failures enable reason-controlled manual entry. */
+  private static isTemporaryErpOutage(error: unknown): boolean {
+    const code = typeof error === 'object' && error !== null && 'code' in error
+      ? String((error as { code?: unknown }).code ?? '').toUpperCase() : '';
+    if (['ELOGIN', 'EREQUEST', 'EINVALID', 'EPARAM'].includes(code)) return false;
+    if (['ETIMEOUT', 'ESOCKET', 'ECONNCLOSED', 'ENOTOPEN', 'ECONNRESET', 'ENETUNREACH', 'EHOSTUNREACH'].includes(code)) return true;
+    const message = error instanceof Error ? error.message : String(error);
+    if (/invalid\s+column|invalid\s+object|permission\s+denied|login\s+failed|unsupported\s+sql\s+type/i.test(message)) return false;
+    return /connection pool not initialized|connection.*unavailable|network.*unavailable|connection.*(?:closed|failed|timed out)|request.*timed out|ETIMEDOUT|ECONNREFUSED/i.test(message);
+  }
+
+  /**
+   * Role-scoped, read-only DataMan gate lookup for KPMPL workflows.
+   * This deliberately exposes only the fields all receiving.view roles need, rather
+   * than granting every operator unrestricted access to the full ERP browser.
+   * V_No repeats across years: require a year and return candidates with full DocId.
+   * Never guess supplier name, material, PO or weight unit.
+   */
+  @Get('gate-lookup')
+  @Requires('receiving.view')
+  async lookupGate(
+    @Res({ passthrough: true }) reply: FastifyReply,
+    @Req() request: FastifyRequest & { id?: string },
+    @Query('gateNo') rawGateNo?: string,
+    @Query('year') rawYear?: string,
+  ) {
+    const gateNo = rawGateNo?.trim() ?? '';
+    const year = Number(rawYear);
+    if (!gateNo || gateNo.length > 64 || /[\u0000-\u001f]/.test(gateNo)) {
+      throw new BadRequestException({ code: 'VALIDATION_FAILED', message: 'Valid DataMan gate number required.' });
+    }
+    if (!rawYear || !/^\d{4}$/.test(rawYear) || !Number.isInteger(year) || year < 2000 || year > 2100) {
+      throw new BadRequestException({ code: 'VALIDATION_FAILED', message: 'A four-digit gate entry year is required.' });
+    }
+    const sql = `
+      SELECT TOP (21)
+        g.DocId, g.V_No, g.V_Date, g.V_Time, g.VehicleNo, g.PartyCode,
+        w.Actual_GWeight AS grossWeight,
+        ${GRN_UNIT_SUBQUERY('g')}
+      FROM GateInOut g
+      OUTER APPLY (
+        SELECT TOP (1) w1.Actual_GWeight
+        FROM Weightment w1
+        WHERE w1.GIDocId = g.DocId
+        ORDER BY w1.Weigh_Date ASC, w1.DocId ASC
+      ) w
+      WHERE g.V_No = @gateNo
+        AND g.V_Date >= @fromDate AND g.V_Date < @toDate
+      ORDER BY g.V_Date DESC, g.DocId DESC
+    `;
+    const params: ErpQueryParam[] = [
+      { name: 'gateNo', type: 'VarChar', value: gateNo },
+      { name: 'fromDate', type: 'VarChar', value: `${year}-01-01` },
+      { name: 'toDate', type: 'VarChar', value: `${year + 1}-01-01` },
+    ];
+    try {
+      const result: any[] = await this.erpSqlServer.executeQuery(sql, params);
+      return {
+        data: (result ?? []).slice(0, 20).map((row) => ({
+          docId: String(row.DocId), gateNo: String(row.V_No),
+          gateDate: row.V_Date ?? null, gateTime: row.V_Time ?? null,
+          vehicleNo: row.VehicleNo ?? null,
+          partyCode: row.PartyCode ?? null, // a CODE, never fabricated as a display name
+          grossWeight: normalizeErpWeight(row.grossWeight, ErpSqlServerController.grnUnitOf(row)),
+        })),
+        meta: {
+          source: 'erp.sql.server.gate-lookup',
+          fetchedAt: new Date().toISOString(),
+          gateNo, year, truncated: (result ?? []).length > 20,
+        },
+      };
+    } catch (error) {
+      this.erpSqlServer['logger'].error(`ErpSqlServerController.lookupGate: ${error instanceof Error ? error.message : String(error)}`);
+      const unavailable = ErpSqlServerController.isTemporaryErpOutage(error);
+      void reply.code(unavailable ? HttpStatus.SERVICE_UNAVAILABLE : HttpStatus.INTERNAL_SERVER_ERROR);
+      return {
+        error: {
+          code: unavailable ? 'ERP_UNAVAILABLE' : 'ERP_QUERY_FAILED',
+          message: unavailable
+            ? 'ERP data source temporarily unavailable.'
+            : 'ERP lookup could not be completed. Contact the administrator; do not enter an unverified manual record.',
+          meta: { retryable: unavailable, source: 'erp.sql.server.gate-lookup' },
+          requestId: request?.id,
+        },
+      };
+    }
   }
 
   /**
@@ -132,6 +251,8 @@ export class ErpSqlServerController {
         w.Actual_GWeight AS grossWeight,
         w.Tare_Weight AS tareWeight,
         w.Net_Weight AS netWeight,
+        w.Out_Tare_Weight AS outTareWeight,
+        w.Out_Net_Weight AS outNetWeight,${GRN_UNIT_SUBQUERY('gp')},
         p.DocId AS pDocId,
         p.V_Type AS pVType,
         p.GRN_Date AS grnDate,
@@ -160,6 +281,7 @@ export class ErpSqlServerController {
       for (const row of rows || []) {
         const key = String(row.DocId);
         let item = byDocId.get(key);
+        const grnUnit = ErpSqlServerController.grnUnitOf(row);
         if (!item) {
           item = {
             docId: row.DocId,
@@ -170,9 +292,10 @@ export class ErpSqlServerController {
             partyCode: row.PartyCode ?? null,
             vehicleNo: row.VehicleNo ?? null,
             gateOutDate: row.GateOutDate ?? null,
-            grossWeight: null as { value: string; unit: 'kg' } | null,
-            tareWeight: null as { value: string; unit: 'kg' } | null,
-            netWeight: null as { value: string; unit: 'kg' } | null,
+            grossWeight: null as ErpWeight | null,
+            finalTareWeight: null as ErpWeight | null,
+            netWeight: null as ErpWeight | null,
+            scaleNetWeight: null as ErpWeight | null,
             hasWeighment: false,
             hasGrn: false,
             grnDate: null as unknown,
@@ -182,12 +305,21 @@ export class ErpSqlServerController {
           byDocId.set(key, item);
         }
 
-        // First weighment row wins for the summary; hasWeighment records presence.
         if (row.wDocId !== null && row.wDocId !== undefined) {
           item.hasWeighment = true;
-          if (item.grossWeight === null) item.grossWeight = ErpSqlServerController.weight(row.grossWeight);
-          if (item.tareWeight === null) item.tareWeight = ErpSqlServerController.weight(row.tareWeight);
-          if (item.netWeight === null) item.netWeight = ErpSqlServerController.weight(row.netWeight);
+          // Gross and DOCUMENT net: the FIRST weighment row wins (existing contract).
+          if (item.grossWeight === null) item.grossWeight = normalizeErpWeight(row.grossWeight, grnUnit);
+          if (item.netWeight === null) item.netWeight = normalizeErpWeight(row.netWeight, grnUnit);
+          // FINAL outgoing tare and WEIGHBRIDGE net: the last row that actually recorded
+          // an outgoing value wins (rows arrive ordered by Weigh_Date). A weighment
+          // without outgoing values contributes nothing here — an incomplete record is
+          // never presented as a completed zero.
+          if (row.outTareWeight !== null && row.outTareWeight !== undefined) {
+            item.finalTareWeight = normalizeErpWeight(row.outTareWeight, grnUnit);
+          }
+          if (row.outNetWeight !== null && row.outNetWeight !== undefined) {
+            item.scaleNetWeight = normalizeErpWeight(row.outNetWeight, grnUnit);
+          }
         }
         if (row.pDocId !== null && row.pDocId !== undefined) {
           item.hasGrn = true;
@@ -199,7 +331,7 @@ export class ErpSqlServerController {
       const items = [...byDocId.values()].map((item) => ({
         ...item,
         fieldsAvailable: (['docId', 'vType', 'vNo', 'vDate', 'vTime', 'partyCode', 'vehicleNo', 'gateOutDate',
-          'grossWeight', 'tareWeight', 'netWeight'] as const).filter((f) => item[f] !== null && item[f] !== undefined),
+          'grossWeight', 'finalTareWeight', 'netWeight', 'scaleNetWeight'] as const).filter((f) => item[f] !== null && item[f] !== undefined),
       }));
 
       const totalPages = total > 0 ? Math.ceil(total / limitNum) : 0;
@@ -276,8 +408,10 @@ export class ErpSqlServerController {
         w.Actual_GWeight AS grossWeight,
         w.Tare_Weight AS tareWeight,
         w.Net_Weight AS netWeight,
+        w.Out_Tare_Weight AS outTareWeight,
+        w.Out_Net_Weight AS outNetWeight,
         w.Weigh_Date AS weighDate,
-        w.Weigh_DateOut AS weighDateOut,
+        w.Weigh_DateOut AS weighDateOut,${GRN_UNIT_SUBQUERY('g')},
         p.DocId AS pDocId,
         p.V_Type AS pVType,
         p.V_No AS pVNo,
@@ -305,6 +439,7 @@ export class ErpSqlServerController {
       }
 
       const head = rows[0];
+      const grnUnit = ErpSqlServerController.grnUnitOf(head);
 
       // De-duplicate joined rows by their own primary DocId.
       const weighments: any[] = [];
@@ -318,9 +453,12 @@ export class ErpSqlServerController {
           weighments.push({
             weighmentDocId: row.wDocId,
             weighSlipNo: row.weighSlipNo ?? null,
-            grossWeight: ErpSqlServerController.weight(row.grossWeight),
-            tareWeight: ErpSqlServerController.weight(row.tareWeight),
-            netWeight: ErpSqlServerController.weight(row.netWeight),
+            // Raw recorded values, each normalized with the gate's unit evidence:
+            grossWeight: normalizeErpWeight(row.grossWeight, grnUnit),      // Actual_GWeight
+            tareWeight: normalizeErpWeight(row.tareWeight, grnUnit),        // weigh-in Tare_Weight
+            netWeight: normalizeErpWeight(row.netWeight, grnUnit),          // document net (Net_Weight)
+            outTareWeight: normalizeErpWeight(row.outTareWeight, grnUnit),  // final outgoing tare
+            outNetWeight: normalizeErpWeight(row.outNetWeight, grnUnit),    // weighbridge net
             weighDate: row.weighDate ?? null,
             weighDateOut: row.weighDateOut ?? null,
           });
@@ -349,10 +487,13 @@ export class ErpSqlServerController {
         partyCode: head.PartyCode ?? null,
         vehicleNo: head.VehicleNo ?? null,
         gateOutDate: head.GateOutDate ?? null,
-        // Summary of the first related records, plus the full arrays.
+        // Summary of the first related records, plus the full arrays. Gross and
+        // DOCUMENT net come from the first weighment row; the FINAL outgoing tare and
+        // WEIGHBRIDGE net come from the last weighment row that recorded them.
         grossWeight: firstWeighment?.grossWeight ?? null,
-        tareWeight: firstWeighment?.tareWeight ?? null,
         netWeight: firstWeighment?.netWeight ?? null,
+        finalTareWeight: weighments.reduce<ErpWeight | null>((acc, w) => w.outTareWeight ?? acc, null),
+        scaleNetWeight: weighments.reduce<ErpWeight | null>((acc, w) => w.outNetWeight ?? acc, null),
         grnDate: firstGrn?.grnDate ?? null,
         grnApprovalStatus: firstGrn?.approvalStatus ?? null,
         hasWeighment: weighments.length > 0,
@@ -366,8 +507,9 @@ export class ErpSqlServerController {
         (f) => (dto as Record<string, unknown>)[f] !== null && (dto as Record<string, unknown>)[f] !== undefined,
       );
       if (dto.grossWeight) fieldsAvailable.push('grossWeight');
-      if (dto.tareWeight) fieldsAvailable.push('tareWeight');
+      if (dto.finalTareWeight) fieldsAvailable.push('finalTareWeight');
       if (dto.netWeight) fieldsAvailable.push('netWeight');
+      if (dto.scaleNetWeight) fieldsAvailable.push('scaleNetWeight');
       if (dto.grnDate) fieldsAvailable.push('grnDate');
 
       return {

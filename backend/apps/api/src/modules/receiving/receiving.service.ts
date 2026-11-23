@@ -9,7 +9,34 @@ import { AuditService } from '../audit/audit.service';
 import { IdempotentWriteService } from '../platform/idempotent-write.service';
 import { WeighmentService, readingDto } from '../weighment/weighment.service';
 import { ReceivingRepository } from './receiving.repository';
+import { ErpGateEvidenceVerifier } from '../erp-sql-server/erp-gate-evidence-verifier';
 import type { CorrectVisitInput, CreateVisitInput, ListVisitsInput, RecordWeightInput } from './receiving.schemas';
+
+type VisitErpEvidence = {
+  gateNo: string;
+  year: number;
+  docId: string | null;
+  fetchedAt: string | null;
+  manualReason: string | null;
+  /** The backend has not yet re-verified this client-selected document against live ERP. */
+  verification: 'operator_selected_unverified' | 'server_verified' | 'manual_exception';
+};
+
+/** Optional source from the immutable receiving-created audit event (no schema migration). */
+function auditErpEvidence(value: Prisma.JsonValue | null): VisitErpEvidence | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const raw = (value as Prisma.JsonObject).erpEvidence;
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
+  const row = raw as Prisma.JsonObject;
+  if (typeof row.gateNo !== 'string' || typeof row.year !== 'number') return null;
+  return {
+    gateNo: row.gateNo, year: row.year,
+    docId: typeof row.docId === 'string' ? row.docId : null,
+    fetchedAt: typeof row.fetchedAt === 'string' ? row.fetchedAt : null,
+    manualReason: typeof row.manualReason === 'string' ? row.manualReason : null,
+    verification: row.verification === 'server_verified' ? 'server_verified' : row.verification === 'operator_selected_unverified' ? 'operator_selected_unverified' : 'manual_exception',
+  };
+}
 
 /** Brief §5.2 ReceivingVisit — the exact projection the frontend renders. */
 type VisitSnapshot = {
@@ -18,13 +45,14 @@ type VisitSnapshot = {
   grossWeight: { value: string; unit: 'kg' } | null; tareWeight: { value: string; unit: 'kg' } | null; notes: string | null;
   qcStatus: string; exitStatus: string; grnStatus: string; officialGrnRef: string | null; physicalExitAt: string | null;
   createdAt: string; createdBy: string; updatedAt: string; version: number;
+  erpEvidence?: VisitErpEvidence;
 };
 
 @Injectable()
 export class ReceivingService {
   constructor(private readonly prisma: PrismaService, private readonly auth: AuthService, private readonly audit: AuditService,
     private readonly writes: IdempotentWriteService, private readonly repository: ReceivingRepository, private readonly weights: WeighmentService,
-    private readonly qc: QcReadService, private readonly movement: MovementReadService) {}
+    private readonly qc: QcReadService, private readonly movement: MovementReadService, private readonly erpVerifier: ErpGateEvidenceVerifier) {}
   async assertReadable(tx: Prisma.TransactionClient, actor: Actor, id: string) {
     await this.auth.authorize(actor, 'receiving.view', tx);
     return this.repository.visible(tx, id);
@@ -37,11 +65,17 @@ export class ReceivingService {
   async snapshots(tx: Prisma.TransactionClient, visits: ReceivingVisit[]): Promise<VisitSnapshot[]> {
     if (!visits.length) return [];
     const ids = visits.map(visit => visit.id);
-    const [readings, qcStates, movementStates, creators] = await Promise.all([
+    const [readings, qcStates, movementStates, creators, creationAudits] = await Promise.all([
       this.weights.history(tx, ids), this.qc.states(tx, ids), this.movement.states(tx, ids),
       tx.user.findMany({ where: { id: { in: [...new Set(visits.map(visit => visit.createdBy))] } }, select: { id: true, fullName: true } }),
+      tx.auditEvent.findMany({ where: { entityType: 'ReceivingVisit', action: 'receiving_created', entityId: { in: ids } },
+        select: { entityId: true, newValue: true } }),
     ]);
     const creatorNames = new Map(creators.map(user => [user.id, user.fullName]));
+    const evidenceByVisit = new Map(creationAudits.flatMap(row => {
+      const evidence = auditErpEvidence(row.newValue);
+      return evidence ? [[row.entityId, evidence] as const] : [];
+    }));
     return visits.map(visit => {
       const movementState = movementStates.get(visit.id);
       if (!movementState) throw new Error('Missing movement projection');
@@ -55,6 +89,7 @@ export class ReceivingService {
         officialGrnRef: movementState.officialGrnRef, physicalExitAt: movementState.physicalExitAt,
         createdAt: visit.createdAt.toISOString(), createdBy: creatorNames.get(visit.createdBy) ?? 'Unknown user',
         updatedAt: visit.updatedAt.toISOString(), version: visit.version,
+        ...(evidenceByVisit.get(visit.id) ? { erpEvidence: evidenceByVisit.get(visit.id)! } : {}),
       };
     });
   }
@@ -63,21 +98,32 @@ export class ReceivingService {
     if (!data) throw new Error('Missing visit projection');
     return data;
   }
-  create(actor: Actor, key: string, input: CreateVisitInput) {
+  async create(actor: Actor, key: string, input: CreateVisitInput) {
+    const independentlyVerified = await this.erpVerifier.verify(input);
     return this.writes.run(actor, 'receiving.create', '/receiving-visits', key, input, async (tx, author) => {
       // Serialize only this exact reference for a reliable advisory; it is never a unique key.
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(6200011, hashtext(${input.officialGateEntryRef}))`;
       const duplicate = await tx.receivingVisit.findFirst({ where: { officialGateEntryRef: input.officialGateEntryRef }, select: { id: true, vehicleNumber: true } });
       if (duplicate) throw new HttpException({ code: 'DUPLICATE_CANDIDATE', message: `A receiving visit with Gate Entry Number ${input.officialGateEntryRef} already exists (vehicle ${duplicate.vehicleNumber}).`, meta: { existingId: duplicate.id } }, 409);
-      const { grossWeight, ...fields } = input;
-      // B-24: isDemo is no longer forced here — the column default applies (reads are not filtered).
-      const visit = await tx.receivingVisit.create({ data: { ...fields, createdBy: author.userId } });
+      const { grossWeight, erpEvidence, ...fields } = input;
+      // This is immutable, operator-selected lookup evidence, not independent server verification.
+      const sourceEvidence: VisitErpEvidence | null = erpEvidence ? {
+        gateNo: erpEvidence.gateNo, year: erpEvidence.year,
+        docId: erpEvidence.docId ?? null, fetchedAt: erpEvidence.fetchedAt ?? null,
+        manualReason: erpEvidence.manualReason ?? null,
+        verification: independentlyVerified?.verification ?? 'manual_exception',
+      } : null;
+      // Demo records are explicit; staging/production receiving visits must never inherit
+      // Prisma's legacy isDemo=true default. Demo fixtures remain isolated in demo mode.
+      const isDemo = process.env.APP_MODE !== 'staging' && process.env.APP_MODE !== 'production';
+      const visit = await tx.receivingVisit.create({ data: { ...fields, createdBy: author.userId, isDemo } });
       const reading = await this.weights.append(tx, visit.id, author.userId, { kind: 'gross', ...grossWeight });
       const data = await this.snapshot(tx, visit);
+      const view = sourceEvidence ? { ...data, erpEvidence: sourceEvidence } : data;
       await this.audit.append(tx, { entityType: 'ReceivingVisit', entityId: visit.id, actorId: author.userId, action: 'receiving_created',
-        newValue: { ...data, detail: `Gross ${grossWeight.value} kg recorded. Sent to QC pending list.` } });
+        newValue: { ...view, detail: `Gross ${grossWeight.value} kg recorded. Sent to QC pending list.` } });
       await this.audit.append(tx, { entityType: 'Weighment', entityId: reading.created.id, actorId: author.userId, action: 'weight_recorded', newValue: reading.created });
-      return { status: 201, body: { data } };
+      return { status: 201, body: { data: view } };
     });
   }
   recordWeight(actor: Actor, id: string, key: string, version: number, input: RecordWeightInput) {

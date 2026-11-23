@@ -46,7 +46,7 @@ const HISTORY_WORDS: Record<string, string> = {
   // Accounting workflow (upgrade 2026-11-03).
   start_accounting: 'Sent to Accounts', submit_to_head_accountant: 'Sent to Head Accountant',
   return_to_ho: 'Returned to Head Office', forwarded_to_head_accountant: 'Forwarded to Head Accountant', returned_to_accountant: 'Returned to Accountant',
-  return_to_accountant: 'Returned to Accountant', approve_accounting: 'Approved by Head Accountant',
+  return_to_accountant: 'Returned to Accountant', approve_accounting: 'Accounting approved',
   post_bill: 'Bill posted', accounting_corrected: 'Accounting correction recorded',
 };
 
@@ -376,14 +376,13 @@ export class DocumentsService {
   /** HO → Accountant → Head Accountant → Bill Posted. Every write: claim version, one transaction, audit + history. */
   accounting(actor: Actor, id: string, key: string, version: number, input: AccountingAction) {
     const capability: Capability = input.kind === 'post_bill' ? 'accounting.post'
-      : input.kind === 'return_to_accountant' || input.kind === 'approve_accounting' || input.kind === 'return_to_ho' ? 'accounting.approve'
+      : input.kind === 'approve_accounting' || input.kind === 'return_to_ho' ? 'accounting.approve'
       : 'accounting.review';
     return this.writes.run(actor, capability, `/document-packages/${id}/accounting`, key, { version, ...input }, async (tx, current) => {
       const before = await this.row(tx, id);
       if (!ACCOUNTING_VISIBLE.includes(before.status as (typeof ACCOUNTING_VISIBLE)[number])) throw new NotFoundException();
       await this.claim(tx, id, version);
       const status = before.status; const record = before.accounting;
-      const isHead = actor.capabilities.includes('accounting.approve');
       let detail: string | undefined;
 
       if (input.kind === 'start_accounting') {
@@ -401,22 +400,9 @@ export class DocumentsService {
         detail = existingRecord ? 'Accounting restarted after the Head Office re-verified the package.' : 'Documents verified by Head Office. Accounting review started.';
       }
 
-      if (input.kind === 'submit_to_head_accountant') {
-        if (status !== 'with_accounting') throw domain('Only a package with Accounts can be sent to the Head Accountant.');
-        await tx.accountingRecord.update({ where: { packageId: id }, data: { stage: 'with_head_accountant', ...(input.accountantNote ? { accountantNote: input.accountantNote } : {}), submittedBy: current.userId, submittedAt: new Date() } });
-        await tx.documentPackage.update({ where: { id }, data: { status: 'with_head_accountant' } });
-        detail = input.accountantNote?.trim() ? `Accountant handed over. Note: ${input.accountantNote.trim()}` : 'Accountant confirmed the accounting entries are complete.';
-      }
-
-      if (input.kind === 'return_to_accountant') {
-        if (status !== 'with_head_accountant') throw domain('Only a package with the Head Accountant can be returned.');
-        await tx.accountingRecord.update({ where: { packageId: id }, data: { stage: 'with_accountant' } });
-        await tx.documentPackage.update({ where: { id }, data: { status: 'with_accounting' } });
-        detail = input.reason.trim();
-      }
 
       if (input.kind === 'return_to_ho') {
-        if (status !== 'with_head_accountant' && status !== 'accounting_approved') throw domain('Only a package with the Head Accountant can be returned to Head Office.');
+        if (!['with_accounting', 'with_head_accountant', 'accounting_approved'].includes(status)) throw domain('Only a package under accounting review or approved for posting can return to Head Office.');
         // B-12: a return clears a stale approval so the record never claims approval it lost.
         // The package goes to 'returned_to_ho' (Phase 1-2 rule) — Head Office re-verifies from there.
         await tx.accountingRecord.update({ where: { packageId: id }, data: { stage: 'with_accountant', approvedBy: null, approvedAt: null } });
@@ -425,16 +411,18 @@ export class DocumentsService {
       }
 
       if (input.kind === 'approve_accounting') {
-        if (status !== 'with_head_accountant') throw domain('The Accountant must send the package to the Head Accountant first.');
-        await tx.accountingRecord.update({ where: { packageId: id }, data: { stage: 'approved', approvedBy: current.userId, approvedAt: new Date(), ...(input.headAccountantNote ? { headAccountantNote: input.headAccountantNote } : {}) } });
+        if (status !== 'with_accounting' && status !== 'with_head_accountant') throw domain('Only a package under accounting review can be approved.');
+        const checks = await tx.accountingCheck.findUnique({ where: { packageId: id } });
+        if (!checks?.billPassed || !checks.gstChecked || !checks.tdsChecked) throw domain('Record all three approved accounting checks before approval.');
+        await tx.accountingRecord.update({ where: { packageId: id }, data: { stage: 'approved', approvedBy: current.userId, approvedAt: new Date(), ...(input.note ? { accountantNote: input.note } : {}) } });
         await tx.documentPackage.update({ where: { id }, data: { status: 'accounting_approved' } });
-        detail = input.headAccountantNote?.trim() ? `Head Accountant approved. Note: ${input.headAccountantNote.trim()}` : 'Head Accountant approved the accounting.';
+        detail = input.note?.trim() ? 'Accountant approved with a note: ' + input.note.trim() : 'Accountant approved the accounting after review checks.';
       }
 
       if (input.kind === 'post_bill') {
         // Duplicate-posting guard: bill_posted is terminal for accounting actions.
         if (status === 'bill_posted') throw domain('This bill is already posted. Posting it twice is not allowed.');
-        if (status !== 'accounting_approved') throw domain('The Head Accountant must approve the package before the bill can be posted.');
+        if (status !== 'accounting_approved') throw domain('Approve the accounting before posting the bill.');
         const previousRef = record?.accountingRef ?? null;
         await tx.accountingRecord.update({ where: { packageId: id }, data: { stage: 'posted', accountingRef: input.billRef, postedBy: current.userId, postedAt: new Date() } });
         await tx.documentPackage.update({ where: { id }, data: { status: 'bill_posted' } });
@@ -453,7 +441,7 @@ export class DocumentsService {
         // them. Once approved the fields are locked (B-12), and bill_posted is terminal.
         if (!record) throw domain('Start accounting on this package first.');
         if (status === 'bill_posted' || status === 'accounting_approved') throw domain('The accounting is approved or posted. The amounts are locked.');
-        if (status !== 'with_accounting' && !isHead) throw domain('The package is with the Head Accountant. Only the Head Accountant can change the amounts now.');
+        if (status !== 'with_accounting') throw domain('Only a package under accounting review allows amount changes.');
         const money = ['invoiceAmount', 'gstAmount', 'tdsAmount', 'netAmount'] as const;
         const before: Record<string, string | null> = {};
         const after: Record<string, string | null> = {};
@@ -480,9 +468,8 @@ export class DocumentsService {
         // with the Head Accountant, only the Head Accountant corrects. B-12: once approved,
         // the fields are locked — the only next steps are post_bill or return_to_ho.
         if (status === 'accounting_approved') throw domain('The accounting is approved. The fields are locked — post the bill or return the package to Head Office.');
-        if (status !== 'with_accounting' && !isHead) throw domain('The package is with the Head Accountant. Only the Head Accountant can change it now.');
-        if (input.field === 'headAccountantNote' && !isHead) throw domain('Only the Head Accountant can change the Head Accountant note.');
-        const currentValue = input.field === 'accountingRef' ? record.accountingRef : input.field === 'accountantNote' ? record.accountantNote : record.headAccountantNote;
+        if (status !== 'with_accounting') throw domain('Only a package under accounting review allows corrections.');
+        const currentValue = input.field === 'accountingRef' ? record.accountingRef : record.accountantNote;
         const nextValue = input.value.trim();
         if (currentValue === nextValue) throw domain('The new value is the same as the current one. Nothing to correct.');
         await tx.accountingRecord.update({ where: { packageId: id }, data: { [input.field]: nextValue } });
@@ -495,12 +482,10 @@ export class DocumentsService {
       }
 
       await this.history(tx, id, current.userId, input.kind, detail);
-      if (input.kind === 'return_to_accountant') {
-        await this.audit.append(tx, { entityType: 'DocumentPackage', entityId: id, actorId: current.userId, action: input.kind, reason: input.reason, oldValue: { status }, newValue: { status: 'with_accounting' } });
-      } else if (input.kind === 'return_to_ho') {
+      if (input.kind === 'return_to_ho') {
         await this.audit.append(tx, { entityType: 'DocumentPackage', entityId: id, actorId: current.userId, action: input.kind, reason: input.reason, oldValue: { status }, newValue: { status: 'returned_to_ho' } });
       } else {
-        await this.audit.append(tx, { entityType: 'DocumentPackage', entityId: id, actorId: current.userId, action: input.kind, oldValue: { status }, newValue: { status: input.kind === 'start_accounting' ? 'with_accounting' : input.kind === 'submit_to_head_accountant' ? 'with_head_accountant' : 'accounting_approved' } });
+        await this.audit.append(tx, { entityType: 'DocumentPackage', entityId: id, actorId: current.userId, action: input.kind, oldValue: { status }, newValue: { status: input.kind === 'start_accounting' ? 'with_accounting' : 'accounting_approved' } });
       }
       return { status: 200, body: json({ data: await this.present(tx, id) }) };
     });
@@ -595,14 +580,5 @@ export class DocumentsService {
     return tx;
   }
 
-  // B-26: query the states that actually exist in the state machine.
-  async headAccountantCases(actor: Actor) {
-    await this.auth.authorize(actor, 'accounting.approve');
-    const cases = await this.prisma.documentPackage.findMany({
-      where: { OR: [{ status: 'with_head_accountant' }, { status: 'accounting_approved' }] },
-      orderBy: { updatedAt: 'desc' },
-    });
-    return { data: cases };
-  }
 
 }

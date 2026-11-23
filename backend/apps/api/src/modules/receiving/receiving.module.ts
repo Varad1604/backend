@@ -7,5 +7,6 @@ import { WritesModule } from '../platform/writes.module';
 import { ReceivingController, ReferenceDataController } from './receiving.controller';
 import { ReceivingService } from './receiving.service';
 import { ReceivingRepository } from './receiving.repository';
-@Module({ imports: [IdentityModule, WeighmentModule, WritesModule, QcReadModule, MovementReadModule], controllers: [ReceivingController, ReferenceDataController], providers: [ReceivingService, ReceivingRepository], exports: [ReceivingService] })
+import { ErpSqlServerModule } from '../erp-sql-server/erp-sql-server.module';
+@Module({ imports: [IdentityModule, WeighmentModule, WritesModule, QcReadModule, MovementReadModule, ErpSqlServerModule], controllers: [ReceivingController, ReferenceDataController], providers: [ReceivingService, ReceivingRepository], exports: [ReceivingService] })
 export class ReceivingModule {}

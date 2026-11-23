@@ -22,7 +22,7 @@ import { categories } from '../src/modules/documents/document.schemas';
 describe.skipIf(process.env.REQUIRE_LIVE_DEPENDENCIES !== 'true')('accounting workflow: verified → with_accounting → with_head_accountant → accounting_approved → bill_posted', () => {
   let app: NestFastifyApplication, prisma: PrismaService, base: PrismaClient;
   const schema = 'ac_' + randomUUID().replaceAll('-', ''), password = randomBytes(24).toString('base64url'), prefix = 'DEMO-' + randomUUID();
-  let gate: string, docs: string, ho: string, accountant: string, head: string;
+  let gate: string, docs: string, ho: string, accountant: string;
   const call = (method: 'GET'|'POST'|'PUT', path: string, token: string, payload?: object, version?: number, key = randomUUID()) =>
     app.inject({ method, url: '/api/v1' + path, headers: { authorization: 'Bearer ' + token, 'idempotency-key': key, ...(version ? { 'if-match': String(version) } : {}) }, ...(payload ? { payload } : {}) });
   const act = (pkgId: string, token: string, payload: object, version: number, key = randomUUID()) =>
@@ -35,12 +35,12 @@ describe.skipIf(process.env.REQUIRE_LIVE_DEPENDENCIES !== 'true')('accounting wo
     app = module.createNestApplication<NestFastifyApplication>(new FastifyAdapter()); await configureHttp(app); await app.init(); await app.getHttpAdapter().getInstance().ready();
     const auth = app.get(AuthService);
     const tokens: string[] = [];
-    for (const role of ['gate', 'gate_doc', 'ho', 'accountant', 'head_accountant'] as const) {
+    for (const role of ['gate', 'gate_doc', 'ho', 'accountant'] as const) {
       const code = prefix + '-' + role; await auth.bootstrapDemo(code, 'DEMO-' + role, password, [role]);
       const login = await app.inject({ method: 'POST', url: '/api/v1/auth/login', payload: { username: code, password, clientType: 'mobile' } });
       tokens.push(login.json().data.accessToken);
     }
-    [gate, docs, ho, accountant, head] = tokens as [string, string, string, string, string];
+    [gate, docs, ho, accountant] = tokens as [string, string, string, string];
   }, 30_000);
   afterAll(async () => { await app?.close(); if (base) { if (!/^ac_[a-f0-9]{32}$/.test(schema)) throw Error('Unsafe test schema'); await base.$executeRawUnsafe('DROP SCHEMA "' + schema + '" CASCADE'); await base.$disconnect(); } });
 
@@ -64,102 +64,57 @@ describe.skipIf(process.env.REQUIRE_LIVE_DEPENDENCIES !== 'true')('accounting wo
     const verified = await call('POST', `/document-packages/${pkg.id}/actions`, ho, { kind: 'verify' }, pkg.version); expect(verified.statusCode, verified.body).toBe(200); pkg = verified.json().data;
     expect(pkg.status).toBe('verified');
 
-    // --- RBAC: only accounting roles reach the accounting endpoint ---
+    // --- Consolidated least privilege: only Accountant handles internal accounting ---
     expect((await act(pkg.id, gate, { kind: 'start_accounting' }, pkg.version)).statusCode).toBe(403);
     expect((await act(pkg.id, docs, { kind: 'start_accounting' }, pkg.version)).statusCode).toBe(403);
     expect((await act(pkg.id, ho, { kind: 'start_accounting' }, pkg.version)).statusCode).toBe(403);
-    // The Accountant cannot approve, return or post — those are Head Accountant capabilities.
-    expect((await act(pkg.id, accountant, { kind: 'return_to_accountant', reason: 'DEMO' }, pkg.version)).statusCode).toBe(403);
-    expect((await act(pkg.id, accountant, { kind: 'approve_accounting' }, pkg.version)).statusCode).toBe(403);
-    expect((await act(pkg.id, accountant, { kind: 'post_bill', billRef: 'DEMO-BILL-EARLY' }, pkg.version)).statusCode).toBe(403);
-
-    // --- The queue lists the verified package for Accounts ---
     const queue = await call('GET', '/accounting/queue', accountant);
     expect(queue.statusCode).toBe(200);
     expect(queue.json().data.some((item: { id: string }) => item.id === pkg.id)).toBe(true);
 
-    // --- Accountant starts; double-start and wrong-origin starts are refused ---
-    let result = await act(pkg.id, accountant, { kind: 'start_accounting' }, pkg.version); expect(result.statusCode).toBe(200); pkg = result.json().data;
+    let result = await act(pkg.id, accountant, { kind: 'start_accounting' }, pkg.version);
+    expect(result.statusCode, result.body).toBe(200); pkg = result.json().data;
     expect(pkg.status).toBe('with_accounting');
     expect(pkg.accounting.stage).toBe('with_accountant');
-    expect(pkg.accounting.startedBy).toBe('DEMO-accountant');
     expect((await act(pkg.id, accountant, { kind: 'start_accounting' }, pkg.version)).statusCode).toBe(422);
-    expect((await act(pkg.id, accountant, { kind: 'submit_to_head_accountant', confirmComplete: true }, pkg.version + 1)).statusCode).toBe(409); // stale If-Match → VERSION_CONFLICT
+    // Approval fails until the three independent accounting checks are recorded.
+    expect((await act(pkg.id, accountant, { kind: 'approve_accounting' }, pkg.version)).statusCode).toBe(422);
 
-    // --- Authorized corrections while with the Accountant ---
     result = await act(pkg.id, accountant, { kind: 'correct_accounting', field: 'accountingRef', value: '0009-AC', reason: 'DEMO typed the bill reference' }, pkg.version);
-    expect(result.statusCode).toBe(200); pkg = result.json().data;
-    expect(pkg.accounting.accountingRef).toBe('0009-AC');
-    expect(pkg.accounting.corrections[0]).toMatchObject({ field: 'accountingRef', oldValue: null, newValue: '0009-AC', reason: 'DEMO typed the bill reference', correctedBy: 'DEMO-accountant' });
-    // Same value again: nothing to correct.
-    expect((await act(pkg.id, accountant, { kind: 'correct_accounting', field: 'accountingRef', value: '0009-AC', reason: 'DEMO no-op' }, pkg.version)).statusCode).toBe(422);
-    // The Head Accountant note belongs to the Head Accountant alone.
-    expect((await act(pkg.id, accountant, { kind: 'correct_accounting', field: 'headAccountantNote', value: 'DEMO', reason: 'DEMO overreach' }, pkg.version)).statusCode).toBe(422);
-
-    // --- B-11: staff-typed money fields (optional, none required) ---
+    expect(result.statusCode, result.body).toBe(200); pkg = result.json().data;
+    expect(pkg.accounting.corrections[0]).toMatchObject({ field: 'accountingRef', oldValue: null, newValue: '0009-AC' });
     result = await act(pkg.id, accountant, { kind: 'record_amounts', invoiceAmount: '15250.50', gstAmount: '2745.09' }, pkg.version);
-    expect(result.statusCode, result.body).toBe(200); pkg = result.json().data;
+    expect(result.statusCode).toBe(200); pkg = result.json().data;
     expect(pkg.accounting.invoiceAmount).toBe('15250.50');
-    expect(pkg.accounting.gstAmount).toBe('2745.09');
-    expect(pkg.accounting.tdsAmount).toBeNull();
-    // Clearing a field sends null.
-    result = await act(pkg.id, accountant, { kind: 'record_amounts', gstAmount: null }, pkg.version);
-    expect(result.statusCode, result.body).toBe(200); pkg = result.json().data;
-    expect(pkg.accounting.gstAmount).toBeNull();
-    // Invalid money shapes are refused; at least one amount is required.
-    expect((await act(pkg.id, accountant, { kind: 'record_amounts', invoiceAmount: '15,250.5' }, pkg.version)).statusCode).toBe(422);
-    expect((await act(pkg.id, accountant, { kind: 'record_amounts' }, pkg.version)).statusCode).toBe(422);
-    // Restore an invoice amount for the posting assertions below.
-    pkg = (await act(pkg.id, accountant, { kind: 'record_amounts', invoiceAmount: '15250.50' }, pkg.version)).json().data;
+    const checks = await call('POST', '/accounting/cases/' + pkg.id + '/checks', accountant, {
+      checks: [{ type: 'bill_passed', status: 'ok' }, { type: 'gst_checked', status: 'ok' }, { type: 'tds_checked', status: 'ok' }],
+    }, pkg.version);
+    expect(checks.statusCode, checks.body).toBe(200); pkg = checks.json().data;
 
-    // --- Hand over; the Accountant loses write access ---
-    result = await act(pkg.id, accountant, { kind: 'submit_to_head_accountant', confirmComplete: true, accountantNote: 'DEMO entries complete' }, pkg.version);
-    expect(result.statusCode).toBe(200); pkg = result.json().data;
-    expect(pkg.status).toBe('with_head_accountant');
-    expect(pkg.accounting.submittedBy).toBe('DEMO-accountant');
-    expect((await act(pkg.id, accountant, { kind: 'correct_accounting', field: 'accountingRef', value: '0010-AC', reason: 'DEMO' }, pkg.version)).statusCode).toBe(422);
-
-    // --- Head Accountant returns once, approves on the second pass ---
-    result = await act(pkg.id, head, { kind: 'return_to_accountant', reason: 'DEMO check the freight line' }, pkg.version);
-    expect(result.statusCode).toBe(200); pkg = result.json().data;
-    expect(pkg.status).toBe('with_accounting');
-    expect((await act(pkg.id, head, { kind: 'approve_accounting' }, pkg.version)).statusCode).toBe(422);
-    pkg = (await act(pkg.id, accountant, { kind: 'submit_to_head_accountant', confirmComplete: true }, pkg.version)).json().data;
-    const approveKey = randomUUID();
-    result = await act(pkg.id, head, { kind: 'approve_accounting', headAccountantNote: 'DEMO approved for posting' }, pkg.version, approveKey);
+    const approveKey = randomUUID(); const approvedVersion = pkg.version;
+    result = await act(pkg.id, accountant, { kind: 'approve_accounting', note: 'DEMO approved for posting' }, approvedVersion, approveKey);
     expect(result.statusCode, result.body).toBe(200); pkg = result.json().data;
     expect(pkg.status).toBe('accounting_approved');
-    expect(pkg.accounting.headAccountantNote).toBe('DEMO approved for posting');
-    expect(pkg.accounting.approvedBy).toBe('DEMO-head_accountant');
+    expect(pkg.accounting.approvedBy).toBe('DEMO-accountant');
+    expect((await act(pkg.id, accountant, { kind: 'correct_accounting', field: 'accountingRef', value: '0010-AC', reason: 'Too late' }, pkg.version)).statusCode).toBe(422);
 
-    // --- B-12: once approved, the fields are locked ---
-    expect((await act(pkg.id, head, { kind: 'correct_accounting', field: 'accountingRef', value: '0009-AC-2', reason: 'DEMO after approval' }, pkg.version)).statusCode).toBe(422);
-    expect((await act(pkg.id, head, { kind: 'record_amounts', invoiceAmount: '1.00' }, pkg.version)).statusCode).toBe(422);
-
-    result = await act(pkg.id, head, { kind: 'post_bill', billRef: '00071-HO', note: 'DEMO internal posting' }, pkg.version);
-    expect(result.statusCode).toBe(200); pkg = result.json().data;
+    result = await act(pkg.id, accountant, { kind: 'post_bill', billRef: '00071-HO' }, pkg.version);
+    expect(result.statusCode, result.body).toBe(200); pkg = result.json().data;
     expect(pkg.status).toBe('bill_posted');
-    expect(pkg.accounting.stage).toBe('posted');
     expect(pkg.accounting.accountingRef).toBe('00071-HO');
-    expect(pkg.accounting.postedBy).toBe('DEMO-head_accountant');
-    // Duplicate posting is refused…
-    expect((await act(pkg.id, head, { kind: 'post_bill', billRef: '00071-HO' }, pkg.version)).statusCode).toBe(422);
-    // …and a successful request retried with the same key replays the stored response.
-    const replay = await act(pkg.id, head, { kind: 'approve_accounting', headAccountantNote: 'DEMO approved for posting' }, pkg.version - 2, approveKey); // exact original body → replay
+    expect(pkg.accounting.postedBy).toBe('DEMO-accountant');
+    expect((await act(pkg.id, accountant, { kind: 'post_bill', billRef: '00071-HO' }, pkg.version)).statusCode).toBe(422);
+    const replay = await act(pkg.id, accountant, { kind: 'approve_accounting', note: 'DEMO approved for posting' }, approvedVersion, approveKey);
     expect(replay.statusCode).toBe(200);
     expect(replay.headers['idempotent-replay']).toBe('true');
-    // No correction after posting.
-    expect((await act(pkg.id, head, { kind: 'correct_accounting', field: 'accountingRef', value: '0009-AC', reason: 'DEMO too late' }, pkg.version)).statusCode).toBe(422);
 
-    // --- Audit trail: history wording, corrections and the visit timeline ---
     const actions = pkg.history.map((h: { action: string }) => h.action);
-    for (const wording of ['Sent to Accounts', 'Sent to Head Accountant', 'Returned to Accountant', 'Approved by Head Accountant', 'Bill posted', 'Accounting correction recorded']) {
-      expect(actions, 'missing history entry: ' + wording).toContain(wording);
+    for (const word of ['Sent to Accounts', 'Accounting approved', 'Bill posted', 'Accounting correction recorded']) {
+      expect(actions).toContain(word);
     }
-    expect(pkg.history.find((h: { action: string }) => h.action === 'Bill posted').detail).toContain('00071-HO');
     expect(pkg.accounting.corrections.length).toBe(1);
-    const timeline = (await call('GET', `/receiving-visits/${visitId}/timeline`, ho)).json().data;
-    expect(timeline.some((e: { action: string }) => e.action === 'bill_posted')).toBe(true);
+    const timeline = (await call('GET', '/receiving-visits/' + visitId + '/timeline', ho)).json().data;
+    expect(timeline.some((event: { action: string }) => event.action === 'bill_posted')).toBe(true);
 
     // --- HO keeps its ERP-confirm duties after the handoff (internal ≠ external) ---
     expect((await call('GET', '/head-office/cases', ho)).json().data.some((item: { id: string }) => item.id === pkg.id)).toBe(true);

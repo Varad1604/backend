@@ -32,7 +32,6 @@ const ACCOUNTS = [
   { username: 'demo-docs', displayName: 'Demo Document Authority', role: 'gate_doc' },
   { username: 'demo-ho', displayName: 'Demo HO User', role: 'ho' },
   { username: 'demo-accountant', displayName: 'Demo Accountant', role: 'accountant' },
-  { username: 'demo-headacc', displayName: 'Demo Head Accountant', role: 'head_accountant' },
   { username: 'demo-admin', displayName: 'Demo Admin', role: 'admin' },
 ] as const;
 
@@ -240,7 +239,7 @@ async function main(): Promise<void> {
   const ids = await seedVisits(users.get('demo-gate')!);
   await seedTimeline(ids, users.get('demo-gate')!);
   await seedPackages(ids, users.get('demo-gate')!);
-  console.log('Demo seed loaded: 7 users (demo-gate, demo-qc, demo-docs, demo-ho, demo-accountant, demo-headacc, demo-admin), 5 visits, 3 packages.');
+  console.log('Demo seed loaded: 6 users (demo-gate, demo-qc, demo-docs, demo-ho, demo-accountant, demo-admin), 5 visits, 3 packages.');
 }
 
 void main().then(() => prisma.$disconnect()).catch(async error => { console.error('Demo seed failed:', error); await prisma.$disconnect(); process.exitCode = 1; });

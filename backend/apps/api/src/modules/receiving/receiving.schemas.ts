@@ -13,11 +13,32 @@ export const weightValueSchema = z.object({
   unit: z.literal('kg'),
 }).strict();
 // R-01: ref 40, vehicle 30, supplier 80 and material 80 are required; challan/po optional (40).
+/** Operator-supplied lookup evidence; never described as server-confirmed ERP truth. */
+export const erpEvidenceInputSchema = z.object({
+  gateNo: text(40),
+  year: z.number().int().min(2000).max(2100),
+  docId: z.string().min(1).max(200).optional(),
+  fetchedAt: z.iso.datetime({ offset: true }).optional(),
+  manualReason: z.string().trim().min(8).max(500).optional(),
+}).strict().superRefine((value, ctx) => {
+  if (Boolean(value.docId) !== Boolean(value.fetchedAt)) {
+    ctx.addIssue({ code: 'custom', path: ['fetchedAt'], message: 'A selected ERP DocId requires a lookup timestamp.' });
+  }
+  if (!value.docId && !value.manualReason) {
+    ctx.addIssue({ code: 'custom', path: ['manualReason'], message: 'A manual ERP exception requires a reason.' });
+  }
+});
+
 export const createVisitSchema = z.object({
   officialGateEntryRef: text(40), vehicleNumber: text(30), supplierDisplayName: text(80), materialDisplayName: text(80),
   challanRef: optionalRef, poRef: optionalRef, notes: z.string().max(2000).optional(),
   arrivedAt: z.iso.datetime({ offset: true }).optional(), grossWeight: weightValueSchema,
-}).strict();
+  erpEvidence: erpEvidenceInputSchema.optional(),
+}).strict().superRefine((value, ctx) => {
+  if (value.erpEvidence && value.erpEvidence.gateNo !== value.officialGateEntryRef) {
+    ctx.addIssue({ code: 'custom', path: ['erpEvidence', 'gateNo'], message: 'ERP gate number must match the receiving visit.' });
+  }
+});
 // The version always arrives in the If-Match header (brief §3); the body never carries it.
 export const recordWeightSchema = weightValueSchema.extend({
   kind: z.enum(['gross', 'tare']), correctsId: z.uuid().optional(), correctionReason: z.string().max(2000).optional(), reason: z.string().max(2000).optional(),

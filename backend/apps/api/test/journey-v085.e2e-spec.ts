@@ -46,7 +46,7 @@ describe.skipIf(process.env.REQUIRE_LIVE_DEPENDENCIES !== 'true')('full v0.8.5 j
     const module = await Test.createTestingModule({ imports: [AppModule] }).overrideProvider(PrismaService).useValue(prisma).compile();
     app = module.createNestApplication<NestFastifyApplication>(new FastifyAdapter()); await configureHttp(app); await app.init(); await app.getHttpAdapter().getInstance().ready();
     const auth = app.get(AuthService);
-    for (const role of ['gate', 'gate_doc_authority', 'qc', 'ho', 'accountant', 'head_accountant'] as const) {
+    for (const role of ['gate', 'gate_doc_authority', 'qc', 'ho', 'accountant'] as const) {
       const code = 'DEMO-' + prefix + '-' + role; await auth.bootstrapDemo(code, 'DEMO-J-' + role, password, [role]);
       const login = await app.inject({ method: 'POST', url: '/api/v1/auth/login', payload: { username: code, password, clientType: 'mobile' } });
       tokens[role] = login.json().data.accessToken;
@@ -88,17 +88,14 @@ describe.skipIf(process.env.REQUIRE_LIVE_DEPENDENCIES !== 'true')('full v0.8.5 j
     pkg = (await call('ho', 'POST', '/head-office/reviews', { packageId: pkg.id, category: 'supplier_invoice', check: 'ok' }, pkg.version)).data;
     pkg = (await call('ho', 'POST', `/document-packages/${pkg.id}/actions`, { kind: 'verify' }, pkg.version)).data;
     expect(pkg.status).toBe('verified');
-    // 7. Accountant: checks + amounts + handover.
-    pkg = (await call('accountant', 'POST', `/document-packages/${pkg.id}/accounting`, { kind: 'start_accounting' }, pkg.version)).data;
-    r = await call('accountant', 'POST', `/accounting/cases/${pkg.id}/checks`, { checks: [{ type: 'bill_passed', status: 'ok' }, { type: 'gst_checked', status: 'ok' }, { type: 'tds_checked', status: 'ok' }] }, pkg.version);
+    // 7. Accountant starts the accounting review (consolidated role; checks + amounts are
+    // recorded after the return loop like step 9 does).
+    r = await call('accountant', 'POST', `/document-packages/${pkg.id}/accounting`, { kind: 'start_accounting' }, pkg.version);
     expect(r.status, r.body).toBe(200); pkg = r.data;
-    expect(pkg.accountingChecks[0].checks.every((c: { status: string }) => c.status === 'ok')).toBe(true);
-    pkg = (await call('accountant', 'POST', `/document-packages/${pkg.id}/accounting`, { kind: 'record_amounts', invoiceAmount: '25000.00', gstAmount: '4500.00' }, pkg.version)).data;
-    expect(pkg.accounting.invoiceAmount).toBe('25000.00');
-    pkg = (await call('accountant', 'POST', `/document-packages/${pkg.id}/accounting`, { kind: 'submit_to_head_accountant', confirmComplete: true }, pkg.version)).data;
-    expect(pkg.status).toBe('with_head_accountant');
+    expect(pkg.status).toBe('with_accounting');
+
     // 8. Head Accountant RETURNS TO HO (failed check).
-    const rHo = await call('head_accountant', 'POST', `/document-packages/${pkg.id}/accounting`, { kind: 'return_to_ho', reason: 'J: GST figure does not match the invoice.', failedChecks: ['gst_checked'] }, pkg.version);
+    const rHo = await call('accountant', 'POST', `/document-packages/${pkg.id}/accounting`, { kind: 'return_to_ho', reason: 'J: GST figure does not match the invoice.', failedChecks: ['gst_checked'] }, pkg.version);
     expect(rHo.status, JSON.stringify(rHo.error ?? rHo.body).slice(0, 300)).toBe(200);
     pkg = rHo.data;
     expect(pkg.status).toBe('returned_to_ho'); // back at Head Office (Phase 1-2 rule)
@@ -107,28 +104,32 @@ describe.skipIf(process.env.REQUIRE_LIVE_DEPENDENCIES !== 'true')('full v0.8.5 j
     pkg = (await call('ho', 'POST', `/document-packages/${pkg.id}/actions`, { kind: 'start_review' }, pkg.version)).data;
     pkg = (await call('ho', 'POST', '/head-office/reviews', { packageId: pkg.id, category: 'supplier_invoice', check: 'ok' }, pkg.version)).data;
     pkg = (await call('ho', 'POST', `/document-packages/${pkg.id}/actions`, { kind: 'verify' }, pkg.version)).data;
-    pkg = (await call('accountant', 'POST', `/document-packages/${pkg.id}/accounting`, { kind: 'start_accounting' }, pkg.version)).data;
-    pkg = (await call('accountant', 'POST', `/document-packages/${pkg.id}/accounting`, { kind: 'record_amounts', invoiceAmount: '25000.00', gstAmount: '4500.00', tdsAmount: '500.00', netAmount: '24500.00' }, pkg.version)).data;
-    pkg = (await call('accountant', 'POST', `/document-packages/${pkg.id}/accounting`, { kind: 'submit_to_head_accountant', confirmComplete: true }, pkg.version)).data;
+    // Restart accounting after re-verification: approve requires a package under review.
+    r = await call('accountant', 'POST', `/document-packages/${pkg.id}/accounting`, { kind: 'start_accounting' }, pkg.version);
+    expect(r.status, r.body).toBe(200); pkg = r.data;
+    expect(pkg.status).toBe('with_accounting');
+    r = await call('accountant', 'POST', '/accounting/cases/' + pkg.id + '/checks',
+      { checks: [{ type: 'bill_passed', status: 'ok' }, { type: 'gst_checked', status: 'ok' }, { type: 'tds_checked', status: 'ok' }] }, pkg.version);
+    expect(r.status).toBe(200); pkg = r.data;
     // 10. Approve, then DataMan final posting by the Head Accountant (per-milestone capability).
-    pkg = (await call('head_accountant', 'POST', `/document-packages/${pkg.id}/accounting`, { kind: 'approve_accounting' }, pkg.version)).data;
+    pkg = (await call('accountant', 'POST', `/document-packages/${pkg.id}/accounting`, { kind: 'approve_accounting' }, pkg.version)).data;
     expect(pkg.status).toBe('accounting_approved');
     // Plant Head approval is confirmed by the role holding erp.plant_head_approval (HO).
     r = await call('ho', 'POST', `/head-office/cases/${pkg.id}/erp-milestones`, { type: 'plant_head_grn_approval', action: 'confirm', dataManRef: 'J-GRN-0001', verifiedInDataManByStaff: true }, pkg.version);
     expect(r.status, r.body).toBe(200); pkg = r.data;
     r = await call('ho', 'POST', `/head-office/cases/${pkg.id}/erp-milestones`, { type: 'purchase_voucher', action: 'confirm', dataManRef: 'J-VCH-0001', verifiedInDataManByStaff: true }, pkg.version);
     expect(r.status).toBe(200); pkg = r.data;
-    r = await call('head_accountant', 'POST', `/head-office/cases/${pkg.id}/erp-milestones`, { type: 'final_posting', action: 'confirm', dataManRef: 'J-PST-0001', verifiedInDataManByStaff: true }, pkg.version);
+    r = await call('accountant', 'POST', `/head-office/cases/${pkg.id}/erp-milestones`, { type: 'final_posting', action: 'confirm', dataManRef: 'J-PST-0001', verifiedInDataManByStaff: true }, pkg.version);
     expect(r.status).toBe(200); pkg = r.data;
     expect(pkg.erp.every((m: { status: string }) => m.status === 'confirmed')).toBe(true);
     // 11. Bill posting — the final internal state.
-    r = await call('head_accountant', 'POST', `/document-packages/${pkg.id}/accounting`, { kind: 'post_bill', billRef: 'J-BILL-0001', note: 'J journey posting' }, pkg.version);
+    r = await call('accountant', 'POST', `/document-packages/${pkg.id}/accounting`, { kind: 'post_bill', billRef: 'J-BILL-0001', note: 'J journey posting' }, pkg.version);
     expect(r.status, r.body).toBe(200); pkg = r.data;
     expect(pkg.status).toBe('bill_posted');
-    expect((await call('head_accountant', 'POST', `/document-packages/${pkg.id}/accounting`, { kind: 'post_bill', billRef: 'J-BILL-0002' }, pkg.version)).status).toBe(422);
+    expect((await call('accountant', 'POST', `/document-packages/${pkg.id}/accounting`, { kind: 'post_bill', billRef: 'J-BILL-0002' }, pkg.version)).status).toBe(422);
     // 12. The audit trail shows every leg, including the return to HO.
     const actions = pkg.history.map((h: { action: string }) => h.action);
-    for (const wording of ['Sent to Accounts', 'Sent to Head Accountant', 'Returned to Head Office', 'Approved by Head Accountant', 'Bill posted']) {
+    for (const wording of ['Sent to Accounts', 'Returned to Head Office', 'Accounting approved', 'Bill posted']) {
       expect(actions, 'missing: ' + wording).toContain(wording);
     }
   }, 60_000);

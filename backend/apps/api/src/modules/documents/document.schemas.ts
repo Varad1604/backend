@@ -33,17 +33,15 @@ export const ACCOUNTING_STATES = ['with_accounting', 'with_head_accountant', 'ac
 export type AccountingState = (typeof ACCOUNTING_STATES)[number];
 /** Everything an accountant or head accountant may see: verified (hand-off point) plus the accounting chain. */
 export const ACCOUNTING_VISIBLE = ['verified', ...ACCOUNTING_STATES] as const;
-export const accountingFields = ['accountingRef', 'accountantNote', 'headAccountantNote'] as const;
+export const accountingFields = ['accountingRef', 'accountantNote'] as const;
 // Opaque reference, stored byte-for-byte like every DataMan-style ref (max 40 like the brief's refs).
 const opaqueRef = z.string().trim().min(1).max(40);
 // B-11: money as a decimal string with at most 2 fractional digits (never a JS number).
 const moneySchema = z.string().regex(/^(0|[1-9]\d{0,11})(\.\d{1,2})?$/, 'Use a positive amount with at most 2 decimal places.');
 export const accountingActionSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('start_accounting') }).strict(),
-  z.object({ kind: z.literal('submit_to_head_accountant'), confirmComplete: z.literal(true), accountantNote: z.string().trim().max(1000).optional() }).strict(),
   z.object({ kind: z.literal('return_to_ho'), reason: z.string().trim().min(1).max(1000), failedChecks: z.array(z.enum(['bill_passed', 'gst_checked', 'tds_checked'])).min(1) }).strict(),
-  z.object({ kind: z.literal('return_to_accountant'), reason: z.string().trim().min(1).max(1000) }).strict(),
-  z.object({ kind: z.literal('approve_accounting'), headAccountantNote: z.string().trim().max(1000).optional() }).strict(),
+  z.object({ kind: z.literal('approve_accounting'), note: z.string().trim().max(1000).optional() }).strict(),
   // Duplicate-posting guard lives in the state machine: post_bill is legal only from
   // accounting_approved, and bill_posted is terminal for accounting actions.
   z.object({ kind: z.literal('post_bill'), billRef: opaqueRef, note: z.string().trim().max(500).optional() }).strict(),

@@ -1,6 +1,8 @@
 import { Module } from '@nestjs/common';
 import { ErpSqlServerService } from './erp-sql-server.service';
 import { ErpSqlServerController } from './erp-sql-server.controller';
+import { ErpWorkflowReadController } from './erp-workflow-read.controller';
+import { ErpGateEvidenceVerifier } from './erp-gate-evidence-verifier';
 import { ConfigModule } from '@nestjs/config';
 import { WritesModule } from '../platform/writes.module';
 
@@ -25,8 +27,8 @@ import { WritesModule } from '../platform/writes.module';
   // ConfigService (ERP_* env), IdempotentWriteService (platform WritesModule).
   // PrismaModule and AuditModule are @Global, so they resolve without importing.
   imports: [ConfigModule, WritesModule],
-  providers: [ErpSqlServerService],
-  controllers: [ErpSqlServerController],
-  exports: [ErpSqlServerService], // Export service so other modules can inject it
+  providers: [ErpSqlServerService, ErpGateEvidenceVerifier],
+  controllers: [ErpSqlServerController, ErpWorkflowReadController],
+  exports: [ErpSqlServerService, ErpGateEvidenceVerifier], // Export service so other modules can inject it
 })
 export class ErpSqlServerModule {}

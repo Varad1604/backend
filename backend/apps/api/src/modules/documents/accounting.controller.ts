@@ -11,7 +11,7 @@ function version(value: string | undefined) { return ifMatchSchema.parse(value);
 function key(request: FastifyRequest) { return idempotencyKeySchema.parse(request.headers['idempotency-key']); }
 function response(reply: FastifyReply, result: WriteResult) { reply.status(result.status); if (result.replayed) reply.header('Idempotent-Replay', 'true'); return result.body; }
 
-/** Accounting workflow routes (upgrade 2026-11-03): HO → Accountant → Head Accountant → Bill Posted. */
+/** Accounting workflow routes: HO → Accountant review → Accountant approval → Bill Posted. */
 @Controller()
 export class AccountingController {
   constructor(private readonly documents: DocumentsService) {}
@@ -38,9 +38,4 @@ export class AccountingController {
     return response(reply, await this.documents.accounting(req.actor, packageIdSchema.parse(id), key(req), version(match), accountingActionSchema.parse(body)));
   }
 
-  /** Packages currently with the Head Accountant (with_head_accountant) plus those approved
-   *  but not yet posted (accounting_approved) — the Head Accountant's working set (accounting.approve).
-   */
-  @Get('head-accountant/cases') @Requires('accounting.approve')
-  headAccountantCases(@Req() req: AuthRequest) { return this.documents.headAccountantCases(req.actor); }
 }

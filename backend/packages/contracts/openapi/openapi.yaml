@@ -465,12 +465,6 @@ paths:
       responses:
         '200': { $ref: '#/components/responses/PackageView' }
         '422': { $ref: '#/components/responses/Error' }
-  /head-accountant/cases:
-    get:
-      tags: [accounting]
-      summary: Packages for the Head Accountant (with_head_accountant + accounting_approved), updatedAt DESC
-      responses:
-        '200': { description: OK, content: { application/json: { schema: { type: object, required: [data], properties: { data: { type: array, items: { $ref: '#/components/schemas/DocumentPackageView' } } } } } } }
   /head-office/cases:
     get:
       tags: [head-office]
@@ -518,6 +512,55 @@ paths:
       responses:
         '200': { $ref: '#/components/responses/PackageView' }
         '422': { $ref: '#/components/responses/Error' }
+  /erp/gate-lookup:
+    get:
+      tags: [erp]
+      summary: Read-only role-scoped DataMan gate lookup for KPMPL form autofill (receiving.view)
+      description: |
+        Locate a DataMan gate entry by exact GateInOut.V_No and four-digit year.
+        Returns up to 20 matching records, each with its full DocId; clients MUST
+        resolve ambiguity rather than silently selecting a match. Only verified
+        fields are projected. PartyCode is not a verified supplier display name.
+        Weight is labeled kg only when PChallanDetail.Unit confirms MT or KG.
+        This endpoint does not grant unrestricted ERP browsing or write to DataMan.
+      parameters:
+        - { name: gateNo, in: query, required: true, schema: { type: string, minLength: 1, maxLength: 64 } }
+        - { name: year, in: query, required: true, schema: { type: integer, minimum: 2000, maximum: 2100 } }
+      responses:
+        '200':
+          description: Candidates and source metadata (zero matches is valid)
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data:
+                    type: array
+                    items:
+                      type: object
+                      required: [docId, gateNo, gateDate, gateTime, vehicleNo, partyCode, grossWeight]
+                      properties:
+                        docId: { type: string }
+                        gateNo: { type: string }
+                        gateDate: { type: string, nullable: true }
+                        gateTime: { type: string, nullable: true }
+                        vehicleNo: { type: string, nullable: true }
+                        partyCode: { type: string, nullable: true }
+                        grossWeight: { nullable: true, allOf: [{ $ref: '#/components/schemas/ErpWeight' }] }
+                  meta:
+                    type: object
+                    required: [source, fetchedAt, gateNo, year, truncated]
+                    properties:
+                      source: { type: string }
+                      fetchedAt: { type: string, format: date-time }
+                      gateNo: { type: string }
+                      year: { type: integer }
+                      truncated: { type: boolean }
+        '400': { $ref: '#/components/responses/Error' }
+        '401': { $ref: '#/components/responses/Error' }
+        '403': { $ref: '#/components/responses/Error' }
+        '503': { $ref: '#/components/responses/Error' }
   /erp/gate-entries:
     get:
       tags: [erp]
@@ -526,8 +569,12 @@ paths:
         Read-only projection of the DataMan SQL Server GateInOut table with its optional
         Weightment and PChallan (GRN) rows. Pagination is per gate entry, so a gate entry
         with several weighments or GRNs cannot duplicate or shift a page.
-        Weights are ERP-recorded Decimal(12,3) values in kg, returned as fixed strings and
-        never recomputed; null means "not recorded in DataMan", never zero.
+        Weights are the ERP-recorded scalars: gate entries with GRN evidence are metric
+        tonnes (PChallanDetail.Unit='MT') and arrive normalized to kg (exact decimal
+        shift, never recomputed); entries without GRN evidence pass through raw with
+        unit null and provenance 'unverified'. null means "not recorded in DataMan",
+        never zero. Document net (Net_Weight) and weighbridge net (Out_Net_Weight) are
+        different recorded values and are kept distinct.
         An ERP outage returns 503 ERP_UNAVAILABLE - never an empty 200 list.
       parameters:
         - { name: page, in: query, required: false, schema: { type: integer, minimum: 1, default: 1 } }
@@ -591,7 +638,7 @@ components:
       description: Component report
       content: { application/json: { schema: { type: object, required: [status, checks], properties: { status: { type: string, enum: [ok, unavailable] }, checks: { type: object } } } } }
   schemas:
-    RoleCode: { type: string, enum: [gate, gate_doc, gate_doc_authority, qc, ho, accountant, head_accountant, admin] }
+    RoleCode: { type: string, enum: [gate, gate_doc, gate_doc_authority, qc, ho, accountant, admin] }
     QcStatus: { type: string, enum: [pending, in_progress, submitted, returned, accepted, accepted_with_deduction, rejected] }
     ExitStatus: { type: string, enum: [on_premises, exited] }
     GrnStatus: { type: string, enum: [not_recorded, reference_recorded] }
@@ -615,6 +662,17 @@ components:
         active: { type: boolean }
         isActive: { type: boolean }
         mustChangePassword: { type: boolean }
+    ErpSourceEvidence:
+      type: object
+      required: [gateNo, year, docId, fetchedAt, manualReason, verification]
+      properties:
+        gateNo: { type: string }
+        year: { type: integer }
+        docId: { type: [string, 'null'] }
+        fetchedAt: { type: [string, 'null'], format: date-time }
+        manualReason: { type: [string, 'null'] }
+        verification: { type: string, enum: [operator_selected_unverified, server_verified, manual_exception] }
+      additionalProperties: false
     ReceivingVisit:
       type: object
       required: [id, officialGateEntryRef, vehicleNumber, supplierDisplayName, materialDisplayName, challanRef, poRef, arrivedAt, grossWeight, tareWeight, notes, qcStatus, exitStatus, grnStatus, officialGrnRef, physicalExitAt, createdAt, createdBy, updatedAt, version]
@@ -630,6 +688,7 @@ components:
         grossWeight: { oneOf: [{ $ref: '#/components/schemas/Quantity' }, { type: 'null' }] }
         tareWeight: { oneOf: [{ $ref: '#/components/schemas/Quantity' }, { type: 'null' }] }
         notes: { type: [string, 'null'] }
+        erpEvidence: { $ref: '#/components/schemas/ErpSourceEvidence' }
         qcStatus: { $ref: '#/components/schemas/QcStatus' }
         exitStatus: { $ref: '#/components/schemas/ExitStatus' }
         grnStatus: { $ref: '#/components/schemas/GrnStatus' }
@@ -652,6 +711,16 @@ components:
         arrivedAt: { type: string, format: date-time }
         grossWeight: { type: object, required: [value, unit], properties: { value: { type: string, pattern: '^(?!0+(?:[.]0{1,3})?$)[0-9]{1,9}([.][0-9]{1,3})?$' }, unit: { const: kg } }, additionalProperties: false }
         notes: { type: string, maxLength: 2000 }
+        erpEvidence:
+          type: object
+          required: [gateNo, year]
+          properties:
+            gateNo: { type: string, maxLength: 40 }
+            year: { type: integer, minimum: 2000, maximum: 2100 }
+            docId: { type: string, maxLength: 200 }
+            fetchedAt: { type: string, format: date-time }
+            manualReason: { type: string, minLength: 8, maxLength: 500 }
+          additionalProperties: false
       additionalProperties: false
     CorrectVisitInput:
       type: object
@@ -850,12 +919,10 @@ components:
     AccountingAction:
       oneOf:
         - { type: object, required: [kind], properties: { kind: { const: start_accounting } }, additionalProperties: false }
-        - { type: object, required: [kind, confirmComplete], properties: { kind: { const: submit_to_head_accountant }, confirmComplete: { const: true }, accountantNote: { type: string, maxLength: 1000 } }, additionalProperties: false }
         - { type: object, required: [kind, reason, failedChecks], properties: { kind: { const: return_to_ho }, reason: { type: string, minLength: 1, maxLength: 1000 }, failedChecks: { type: array, minItems: 1, items: { type: string, enum: [bill_passed, gst_checked, tds_checked] } } }, additionalProperties: false }
-        - { type: object, required: [kind, reason], properties: { kind: { const: return_to_accountant }, reason: { type: string, minLength: 1, maxLength: 1000 } }, additionalProperties: false }
-        - { type: object, required: [kind], properties: { kind: { const: approve_accounting }, headAccountantNote: { type: string, maxLength: 1000 } }, additionalProperties: false }
+        - { type: object, required: [kind], properties: { kind: { const: approve_accounting }, note: { type: string, maxLength: 1000 } }, additionalProperties: false }
         - { type: object, required: [kind, billRef], properties: { kind: { const: post_bill }, billRef: { type: string, minLength: 1, maxLength: 40 }, note: { type: string, maxLength: 500 } }, additionalProperties: false }
-        - { type: object, required: [kind, field, value, reason], properties: { kind: { const: correct_accounting }, field: { type: string, enum: [accountingRef, accountantNote, headAccountantNote] }, value: { type: string, maxLength: 1000 }, reason: { type: string, minLength: 1, maxLength: 500 } }, additionalProperties: false }
+        - { type: object, required: [kind, field, value, reason], properties: { kind: { const: correct_accounting }, field: { type: string, enum: [accountingRef, accountantNote] }, value: { type: string, maxLength: 1000 }, reason: { type: string, minLength: 1, maxLength: 500 } }, additionalProperties: false }
     AccountingChecks:
       type: object
       required: [checks]
@@ -908,8 +975,28 @@ components:
             meta: { type: object }
 
     ErpWeight:
-      description: ERP-recorded weight (Decimal(12,3) kg); null means not recorded in DataMan, never zero.
-      oneOf: [{ $ref: '#/components/schemas/Quantity' }, { type: 'null' }]
+      description: |
+        ERP-recorded weight. Null means not recorded in DataMan — never zero.
+        Gate entries with GRN evidence record METRIC TONNES (PChallanDetail.Unit='MT');
+        the read-only adapter normalizes those to kg exactly once at the boundary
+        (unit 'kg', provenance 'grn') by decimal-point shift — never float math, never
+        recomputed. Entries WITHOUT GRN evidence have no verifiable unit: the raw
+        recorded value passes through with unit null and provenance 'unverified' —
+        never relabeled, never converted, never guessed.
+      oneOf:
+        - type: object
+          required: [value, unit, provenance]
+          properties:
+            value: { type: string, description: exact kg value (normalized from MT at the adapter boundary) }
+            unit: { type: string, enum: [kg] }
+            provenance: { type: string, enum: [grn] }
+        - type: object
+          required: [value, unit, provenance]
+          properties:
+            value: { type: string, description: the raw recorded value — unit not verifiable, never converted }
+            unit: { type: 'null' }
+            provenance: { type: string, enum: [unverified] }
+        - type: 'null'
     ErpGateEntryCore:
       description: Fields shared by the ERP list and detail projections (nullable by design).
       type: object
@@ -924,8 +1011,9 @@ components:
         vehicleNo: { type: [string, 'null'] }
         gateOutDate: { type: [string, 'null'] }
         grossWeight: { $ref: '#/components/schemas/ErpWeight' }
-        tareWeight: { $ref: '#/components/schemas/ErpWeight' }
-        netWeight: { $ref: '#/components/schemas/ErpWeight' }
+        finalTareWeight: { $ref: '#/components/schemas/ErpWeight', description: final outgoing tare (Weightment.Out_Tare_Weight) — never the weigh-in Tare_Weight }
+        netWeight: { $ref: '#/components/schemas/ErpWeight', description: document net (Weightment.Net_Weight) }
+        scaleNetWeight: { $ref: '#/components/schemas/ErpWeight', description: weighbridge net (Weightment.Out_Net_Weight) — a different recorded value from the document net }
         grnDate: { type: [string, 'null'] }
         grnApprovalStatus: { type: [string, 'null'] }
     ErpGateEntry:
@@ -944,8 +1032,10 @@ components:
         weighmentDocId: { type: string }
         weighSlipNo: { type: [string, 'null'] }
         grossWeight: { $ref: '#/components/schemas/ErpWeight' }
-        tareWeight: { $ref: '#/components/schemas/ErpWeight' }
-        netWeight: { $ref: '#/components/schemas/ErpWeight' }
+        tareWeight: { $ref: '#/components/schemas/ErpWeight', description: weigh-in tare (Weightment.Tare_Weight) }
+        netWeight: { $ref: '#/components/schemas/ErpWeight', description: document net (Weightment.Net_Weight) }
+        outTareWeight: { $ref: '#/components/schemas/ErpWeight', description: final outgoing tare for this weighment (Weightment.Out_Tare_Weight) }
+        outNetWeight: { $ref: '#/components/schemas/ErpWeight', description: weighbridge net for this weighment (Weightment.Out_Net_Weight) }
         weighDate: { type: [string, 'null'] }
         weighDateOut: { type: [string, 'null'] }
     ErpGrn:
